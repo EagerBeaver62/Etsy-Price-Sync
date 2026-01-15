@@ -27,25 +27,15 @@ st.markdown("""
     }
     h1, h2, h3 {
         color: #2c3e50 !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     input, select {
-        color: #2c3e50 !important;
-        border: 1px solid #bdc3c7 !important;
         border-radius: 8px !important;
     }
     div.stButton > button {
         background-color: #3498db !important;
         color: white !important;
         border-radius: 8px !important;
-        border: none !important;
-        padding: 0.6rem 2rem !important;
-        transition: all 0.3s ease;
         font-weight: bold;
-    }
-    div.stButton > button:hover {
-        background-color: #2980b9 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -66,7 +56,7 @@ dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 if 'urunler' not in st.session_state:
     st.session_state.urunler = []
 
-# --- YAN PANEL ---
+# --- SOL PANEL (SIDEBAR) - AYARLAR ---
 with st.sidebar:
     logo_dosyasi = "logo.png"
     if os.path.exists(logo_dosyasi):
@@ -76,10 +66,12 @@ with st.sidebar:
          
     st.title("Yönetim Paneli")
     st.markdown("---")
-    kur = st.number_input("💵 Güncel Dolar (TL)", value=float(dolar_kuru), step=0.01)
     
-    # YENİ: Gram Başı İşçilik Ayarı
-    gr_iscilik_usd = st.number_input("🛠️ Gram Başı İşçilik ($)", value=1.0, step=0.1)
+    # KENDİNİZ BELİRLEYEBİLECEĞİNİZ ALANLAR
+    kur = st.number_input("💵 Dolar Kuru (TL)", value=float(dolar_kuru), step=0.01)
+    
+    # İSTEDİĞİNİZ GRAM BAŞI İŞÇİLİK AYARI BURADA:
+    gr_iscilik_usd = st.number_input("🛠️ Gram Başı İşçilik ($)", value=1.0, step=0.1, help="Her 1 gram için eklenecek dolar bazlı işçilik")
     
     komisyon = st.number_input("📈 Etsy Kesintisi (%)", value=20.0) / 100
     indirim = st.number_input("🏷️ Mağaza İndirimi (%)", value=10.0) / 100
@@ -89,64 +81,61 @@ with st.sidebar:
 # --- ANA EKRAN ---
 st.title("💎 Etsy Akıllı Fiyatlandırma Paneli")
 st.markdown(f"""
-    <div style='background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #eee;'>
-        Anlık Piyasa Verileri: 
-        <b>Altın Ons:</b> ${ons_altin:.2f} | 
-        <b>Gümüş Ons:</b> ${ons_gumus:.2f} | 
-        <b>Dolar Kuru:</b> {kur:.2f} ₺
+    <div style='background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #eee; color: #2c3e50;'>
+        <b>Altın Ons:</b> ${ons_altin:.2f} | <b>Gümüş Ons:</b> ${ons_gumus:.2f} | <b>İşçilik Oranı:</b> {gr_iscilik_usd}$/gr
     </div>
     """, unsafe_allow_html=True)
 st.write("")
 
-with st.expander("➕ Listeye Yeni Ürün Ekle", expanded=True):
+# Ürün Ekleme Paneli
+with st.expander("➕ Yeni Ürün Kaydet", expanded=True):
     c1, c2, c3 = st.columns(3)
     with c1:
-        u_ad = st.text_input("Ürün Adı / SKU")
+        u_ad = st.text_input("Ürün Adı")
         u_kat = st.selectbox("Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Set"])
     with c2:
         u_maden = st.selectbox("Maden Türü", ["Gümüş", "Altın"])
         u_gr = st.number_input("Ağırlık (Gram)", min_value=0.1, step=0.1)
     with c3:
-        u_iscilik_ek = st.number_input("Ekstra Sabit İşçilik (TL)", value=0.0, help="Taş, kaplama gibi gramdan bağımsız maliyetler")
-        u_kar = st.number_input("Hedef Kar (TL)", value=500.0)
+        u_ek_iscilik = st.number_input("Ekstra Sabit İşçilik (TL)", value=0.0, help="Varsa taş/kaplama gibi ekstra TL masraf")
+        u_kar = st.number_input("Net Kar Hedefi (TL)", value=500.0)
     
-    if st.button("Ürünü Kaydet"):
+    if st.button("Listeye Ekle"):
         if u_ad:
             st.session_state.urunler.append({
                 "Ürün": u_ad, "Kategori": u_kat, "Maden": u_maden,
-                "Gr": u_gr, "Ek İşçilik": u_iscilik_ek, "Hedef Kar": u_kar
+                "Gr": u_gr, "Ek İşçilik": u_ek_iscilik, "Hedef Kar": u_kar
             })
             st.rerun()
 
-# --- FİYAT LİSTESİ VE HESAPLAMA ---
+# --- TABLO VE HESAPLAMA ---
 if st.session_state.urunler:
     df = pd.DataFrame(st.session_state.urunler)
     
     def hesapla(row):
-        # 1. Maden Maliyeti
+        # Maden Maliyeti
         ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
         maden_tl = (ons / 31.1035) * row['Gr'] * kur
         
-        # 2. İşçilik Maliyeti (Gram başı $ + Ekstra TL)
-        gr_iscilik_tl = row['Gr'] * gr_iscilik_usd * kur
-        toplam_iscilik_tl = gr_iscilik_tl + row['Ek İşçilik']
+        # İşçilik: (Gram x Sol tarafta belirlediğin dolar) + Ekstra Sabit TL
+        iscilik_tl = (row['Gr'] * gr_iscilik_usd * kur) + row['Ek İşçilik']
         
-        # 3. Toplam Maliyet
-        maliyet_toplam = maden_tl + toplam_iscilik_tl + kargo
+        # Toplam Maliyet
+        maliyet = maden_tl + iscilik_tl + kargo
         
-        # 4. Satış Fiyatı Formülü
+        # Satış Fiyatı
         payda = 1 - (komisyon + indirim)
-        fiyat = (maliyet_toplam + row['Hedef Kar'] + listing_fee) / payda
+        fiyat = (maliyet + row['Hedef Kar'] + listing_fee) / payda
         return round(fiyat, 2)
 
     df['GÜNCEL FİYAT (TL)'] = df.apply(hesapla, axis=1)
     df['DOLAR FİYATI ($)'] = (df['GÜNCEL FİYAT (TL)'] / kur).round(2)
     
-    st.subheader("📊 Kayıtlı Ürünler ve Güncel Fiyatlar")
+    st.subheader("📊 Fiyat Listesi")
     st.dataframe(df, use_container_width=True)
     
-    if st.button("🗑️ Listeyi Temizle"):
+    if st.button("🗑️ Listeyi Sıfırla"):
         st.session_state.urunler = []
         st.rerun()
 else:
-    st.info("Listeniz şu an boş. Ürün ekleyerek başlayabilirsiniz.")
+    st.info("Sol taraftan ayarları yapıp yukarıdan ürün ekleyerek başlayabilirsiniz.")
