@@ -32,7 +32,7 @@ st.markdown("""
 
     /* Başlıklar ve Metinler */
     h1, h2, h3 {
-        color: #BF1515 !important;
+        color: #F2F2F2 !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
