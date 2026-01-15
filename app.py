@@ -15,7 +15,7 @@ st.markdown("""
     
     /* Yan Panel (Sidebar) Tasarımı */
     [data-testid="stSidebar"] {
-        background-color: #2c3e50 !important;
+        background-color: #29736B !important;
     }
     [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label {
         color: #ecf0f1 !important;
