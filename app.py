@@ -3,56 +3,68 @@ import yfinance as yf
 import pandas as pd
 
 # Sayfa Ayarları
-st.set_page_config(page_title="Etsy Jewelry Panel", layout="wide")
+st.set_page_config(page_title="Etsy Profesyonel Fiyat Paneli", layout="wide")
 
-# --- CUSTOM CSS (Şık Tasarım ve Degradeler) ---
+# --- PROFESYONEL TASARIM (CSS) ---
 st.markdown("""
     <style>
-    /* Ana Arka Plan */
+    /* Ana Arka Plan: Açık ve Profesyonel Gradiyent */
     .stApp {
-        background: linear-gradient(135deg, #1a1c2c 0%, #4a192c 100%);
-        color: white;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
     
-    /* Saydam Kart Efekti (Glassmorphism) */
-    div[data-testid="stExpander"], div.stButton > button, .stDataFrame {
-        background: rgba(255, 255, 255, 0.05) !important;
-        backdrop-filter: blur(10px);
-        border-radius: 15px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
+    /* Yan Panel (Sidebar) Tasarımı */
+    [data-testid="stSidebar"] {
+        background-color: #2c3e50 !important;
+    }
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label {
+        color: #ecf0f1 !important;
     }
 
-    /* Başlık Renkleri */
-    h1, h2, h3, p {
-        color: #ffffff !important;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    /* Ürün Kartları ve Tablo Alanı */
+    div[data-testid="stExpander"], .stDataFrame {
+        background-color: white !important;
+        border-radius: 12px !important;
+        border: 1px solid #d1d8e0 !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+        padding: 10px;
     }
 
-    /* Giriş Alanları Özelleştirme */
-    .stNumberInput input, .stTextInput input, .stSelectbox div {
-        background-color: rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border-radius: 10px !important;
+    /* Başlıklar ve Metinler */
+    h1, h2, h3 {
+        color: #2c3e50 !important;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* Input Alanları Okunabilirlik */
+    input, select {
+        color: #2c3e50 !important;
+        border: 1px solid #bdc3c7 !important;
     }
 
-    /* Buton Tasarımı */
+    /* Profesyonel Buton Tasarımı */
     div.stButton > button {
-        background: linear-gradient(90deg, #ff4b2b 0%, #ff416c 100%) !important;
+        background-color: #3498db !important;
+        color: white !important;
+        border-radius: 8px !important;
         border: none !important;
-        font-weight: bold !important;
-        padding: 0.5rem 2rem !important;
+        padding: 0.6rem 2rem !important;
+        transition: all 0.3s ease;
     }
-    
-    /* Sidebar (Yan Panel) Saydamlık */
-    section[data-testid="stSidebar"] {
-        background-color: rgba(0, 0, 0, 0.3) !important;
-        backdrop-filter: blur(15px);
+    div.stButton > button:hover {
+        background-color: #2980b9 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+    }
+
+    /* Metrik Panelleri */
+    [data-testid="stMetricValue"] {
+        color: #2c3e50 !important;
+        font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- PİYASA VERİLERİ (OTOMATİK) ---
+# --- VERİ ÇEKME ---
 @st.cache_data(ttl=3600)
 def piyasa_verileri():
     try:
@@ -65,72 +77,68 @@ def piyasa_verileri():
 
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 
-# --- VERİTABANI SİMÜLASYONU ---
+# Ürünleri saklamak için session
 if 'urunler' not in st.session_state:
     st.session_state.urunler = []
 
 # --- YAN PANEL ---
 with st.sidebar:
-    st.title("⚙️ Ayarlar")
-    kur = st.number_input("Dolar Kuru (₺)", value=float(dolar_kuru))
-    komisyon = st.number_input("Etsy Kesintisi (%)", value=20.0) / 100
-    indirim = st.number_input("Kampanya İndirimi (%)", value=10.0) / 100
-    kargo = st.number_input("Kargo Ücreti (₺)", value=400.0)
-    listing_fee = 0.20 * kur
-    
+    st.image("https://img.icons8.com/fluency/96/diamond.png", width=80)
+    st.title("Yönetim Paneli")
     st.markdown("---")
-    st.write(f"✨ **Canlı Ons Altın:** ${ons_altin:.2f}")
-    st.write(f"✨ **Canlı Ons Gümüş:** ${ons_gumus:.2f}")
+    kur = st.number_input("💵 Güncel Dolar (TL)", value=float(dolar_kuru), step=0.01)
+    komisyon = st.number_input("📈 Etsy Kesintisi (%)", value=20.0) / 100
+    indirim = st.number_input("🏷️ Mağaza İndirimi (%)", value=10.0) / 100
+    kargo = st.number_input("🚚 Kargo Ücreti (TL)", value=400.0)
+    listing_fee = 0.20 * kur
 
 # --- ANA EKRAN ---
-st.title("💎 Etsy Akıllı Ürün Portföyü")
-st.write("Fiyatlar anlık maden kurlarına göre otomatik güncellenir.")
+st.title("💎 Etsy Akıllı Fiyatlandırma Paneli")
+st.write(f"Anlık Piyasa: **Altın:** ${ons_altin:.2f} | **Gümüş:** ${ons_gumus:.2f} | **Kur:** {kur:.2f} ₺")
 
-# Ürün Ekleme Kartı
-with st.expander("➕ Sisteme Yeni Ürün Kaydet"):
+# Ürün Ekleme Bölümü
+with st.expander("➕ Listeye Yeni Ürün Ekle", expanded=True):
     c1, c2, c3 = st.columns(3)
-    u_ad = c1.text_input("Ürün Adı / Kodu")
-    u_kat = c1.selectbox("Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Set"])
-    u_maden = c2.selectbox("Maden Türü", ["Gümüş", "Altın"])
-    u_gr = c2.number_input("Maden Ağırlığı (Gr)", min_value=0.1, step=0.1)
-    u_iscilik = c3.number_input("İşçilik Maliyeti (₺)", min_value=0.0)
-    u_kar = c3.number_input("Net Kar Hedefin (₺)", min_value=0.0)
+    with c1:
+        u_ad = st.text_input("Ürün Adı / SKU")
+        u_kat = st.selectbox("Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Set"])
+    with c2:
+        u_maden = st.selectbox("Maden Türü", ["Gümüş", "Altın"])
+        u_gr = st.number_input("Ağırlık (Gram)", min_value=0.1, step=0.1)
+    with c3:
+        u_iscilik = st.number_input("İşçilik Maliyeti (TL)", value=250.0)
+        u_kar = st.number_input("Hedef Kar (TL)", value=500.0)
     
-    if st.button("Ürünü Listeye Ekle"):
+    if st.button("Ürünü Kaydet"):
         if u_ad:
-            yeni_urun = {
+            st.session_state.urunler.append({
                 "Ürün": u_ad, "Kategori": u_kat, "Maden": u_maden,
                 "Gr": u_gr, "İşçilik": u_iscilik, "Hedef Kar": u_kar
-            }
-            st.session_state.urunler.append(yeni_urun)
-            st.success(f"{u_ad} başarıyla kaydedildi!")
-        else:
-            st.warning("Lütfen bir ürün adı girin.")
+            })
+            st.rerun()
 
-# --- LİSTELEME VE HESAPLAMA ---
+# --- FİYAT LİSTESİ ---
 if st.session_state.urunler:
     df = pd.DataFrame(st.session_state.urunler)
     
-    def fiyat_hesapla(row):
+    def hesapla(row):
         ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
-        maden_maliyeti = (ons / 31.1035) * row['Gr'] * kur
-        toplam_maliyet = maden_maliyeti + row['İşçilik'] + kargo
-        payda = 1 - (komisyon + indirim)
-        satis_tl = (toplam_maliyet + row['Hedef Kar'] + listing_fee) / payda
-        return round(satis_tl, 2)
+        maden_tl = (ons / 31.1035) * row['Gr'] * kur
+        maliyet = maden_tl + row['İşçilik'] + kargo
+        # (Maliyet + Kar + Listing Fee) / (1 - (Komisyon + İndirim))
+        fiyat = (maliyet + row['Hedef Kar'] + listing_fee) / (1 - (komisyon + indirim))
+        return round(fiyat, 2)
 
-    df['Güncel Etsy Fiyatı (₺)'] = df.apply(fiyat_hesapla, axis=1)
-    df['Dolar Karşılığı ($)'] = (df['Güncel Etsy Fiyatı (₺)'] / kur).round(2)
+    df['GÜNCEL FİYAT (TL)'] = df.apply(hesapla, axis=1)
+    df['DOLAR FİYATI ($)'] = (df['GÜNCEL FİYAT (TL)'] / kur).round(2)
     
-    st.subheader("📊 Fiyat Takip Çizelgesi")
+    st.subheader("📊 Kayıtlı Ürünler ve Güncel Fiyatlar")
     st.dataframe(df, use_container_width=True)
     
-    # Veriyi İndirme Butonu
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Listeyi Excel (CSV) Olarak İndir", csv, "fiyat_listesi.csv", "text/csv")
-    
-    if st.button("🗑️ Tüm Listeyi Sıfırla"):
-        st.session_state.urunler = []
-        st.rerun()
+    col_alt1, col_alt2 = st.columns([1, 4])
+    with col_alt1:
+        if st.button("🗑️ Listeyi Temizle"):
+            st.session_state.urunler = []
+            st.rerun()
 else:
-    st.info("Henüz ürün eklemediniz. Başlamak için yukarıdaki 'Yeni Ürün Kaydet' bölümünü kullanın.")
+    st.info("Listeniz şu an boş. Ürün ekleyerek başlayabilirsiniz.")
