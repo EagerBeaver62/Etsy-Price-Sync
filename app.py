@@ -23,7 +23,7 @@ st.markdown("""
 
     /* Ürün Kartları ve Tablo Alanı */
     div[data-testid="stExpander"], .stDataFrame {
-        background-color: white !important;
+        background-color: #F2F2F2 !important;
         border-radius: 12px !important;
         border: 1px solid #d1d8e0 !important;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
@@ -32,7 +32,7 @@ st.markdown("""
 
     /* Başlıklar ve Metinler */
     h1, h2, h3 {
-        color: #2c3e50 !important;
+        color: #BF1515 !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
