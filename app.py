@@ -84,4 +84,49 @@ st.write(f"Anlık Ons: **Altın:** ${ons_altin:.2f} | **Gümüş:** ${ons_gumus:
 
 with st.expander("➕ Yeni Ürün Ekle", expanded=True):
     c1, c2, c3 = st.columns(3)
-    u_ad =
+    u_ad = c1.text_input("Ürün Adı / SKU")
+    u_maden = c2.selectbox("Maden Türü", ["Gümüş", "Altın"])
+    u_gr = c2.number_input("Ağırlık (Gram)", min_value=0.1, step=0.1)
+    u_kar = c3.number_input("Net Kar Hedefi (TL)", value=500.0)
+    
+    if st.button("Listeye Kaydet"):
+        if u_ad:
+            st.session_state.urunler.append({
+                "Ürün": u_ad, "Maden": u_maden, "Gr": u_gr, "Hedef Kar": u_kar
+            })
+            st.rerun()
+
+# --- HESAPLAMA ---
+if st.session_state.urunler:
+    df = pd.DataFrame(st.session_state.urunler)
+    
+    def hesapla(row):
+        # 1. Maden Maliyeti
+        ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
+        maden_tl = (ons / 31.1035) * row['Gr'] * kur
+        
+        # 2. İşçilik Maliyeti (Sadece Gram x Belirlenen $)
+        iscilik_tl = row['Gr'] * gr_iscilik_usd * kur
+        
+        # 3. Toplam Maliyet
+        maliyet = maden_tl + iscilik_tl + kargo
+        
+        # 4. Sabit Ücretler (3 TL İşlem + 0.20$ Listeleme + KDV)
+        sabit_ucretler = (0.20 * kur) + 3.60 
+        
+        # 5. Satış Fiyatı Formülü
+        payda = 1 - (toplam_komisyon_orani + indirim)
+        fiyat = (maliyet + row['Hedef Kar'] + sabit_ucretler) / payda
+        return round(fiyat, 2)
+
+    df['SATIŞ FİYATI (TL)'] = df.apply(hesapla, axis=1)
+    df['SATIŞ FİYATI ($)'] = (df['SATIŞ FİYATI (TL)'] / kur).round(2)
+    
+    st.subheader("📊 Fiyat Çizelgesi")
+    st.dataframe(df, use_container_width=True)
+
+    if st.button("🗑️ Listeyi Sıfırla"):
+        st.session_state.urunler = []
+        st.rerun()
+else:
+    st.info("Ürün ekleyerek hesaplamaya başlayabilirsiniz.")
