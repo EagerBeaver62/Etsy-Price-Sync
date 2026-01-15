@@ -44,7 +44,7 @@ st.markdown("""
 
     /* Profesyonel Buton Tasarımı */
     div.stButton > button {
-        background-color: #3498db !important;
+        background-color: #8C1111 !important;
         color: white !important;
         border-radius: 8px !important;
         border: none !important;
