@@ -6,37 +6,37 @@ import os
 # Sayfa Ayarları
 st.set_page_config(page_title="Etsy Profesyonel Fiyat Paneli", layout="wide", page_icon="💎")
 
-# --- PROFESYONEL TASARIM (CSS) ---
-st.markdown("""
+# --- ALONE GÖRSELİ RENK PALETİ VE TASARIM ---
+st.markdown(f"""
     <style>
-    .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-    [data-testid="stSidebar"] {
-        background-color: #2c3e50 !important;
-    }
-    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h1 {
-        color: #ecf0f1 !important;
-    }
-    div[data-testid="stExpander"], .stDataFrame {
+    .stApp {{
+        background-color: #E2E2E0; /* Arka Plan: Açık Gri/Beyaz */
+    }}
+    [data-testid="stSidebar"] {{
+        background-color: #0E2931 !important; /* Sidebar: Koyu Petrol */
+    }}
+    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h1 {{
+        color: #E2E2E0 !important;
+    }}
+    /* Kart Yapıları */
+    div[data-testid="stExpander"], .stDataFrame {{
         background-color: white !important;
         border-radius: 12px !important;
-        border: 1px solid #d1d8e0 !important;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
-        padding: 10px;
-    }
-    h1, h2, h3 {
-        color: #2c3e50 !important;
-    }
-    input, select {
-        border-radius: 8px !important;
-    }
-    div.stButton > button {
-        background-color: #3498db !important;
+        border-left: 5px solid #2B7574 !important; /* Petrol Yeşili Vurgu */
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05) !important;
+    }}
+    h1, h2, h3 {{
+        color: #0E2931 !important;
+        font-family: 'Playfair Display', serif;
+    }}
+    /* Buton Tasarımı - Kırmızı Vurgu */
+    div.stButton > button {{
+        background-color: #861211 !important;
         color: white !important;
-        border-radius: 8px !important;
-        font-weight: bold;
-    }
+        border-radius: 5px !important;
+        border: none !important;
+        font-weight: bold !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -49,93 +49,79 @@ def piyasa_verileri():
         gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
         return dolar, altin, gumus
     except:
-        return 34.5, 2650.0, 31.5
+        return 34.8, 2650.0, 31.0
 
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 
 if 'urunler' not in st.session_state:
     st.session_state.urunler = []
 
-# --- SOL PANEL (SIDEBAR) - AYARLAR ---
+# --- SIDEBAR: STANDART ETSY KESİNTİLERİ (GÜNCEL) ---
 with st.sidebar:
-    logo_dosyasi = "logo.png"
-    if os.path.exists(logo_dosyasi):
-         st.image(logo_dosyasi, use_column_width=True)
-    else:
-         st.image("https://img.icons8.com/fluency/96/diamond.png", width=80)
-         
-    st.title("Yönetim Paneli")
+    st.title("Admin Paneli")
     st.markdown("---")
+    kur = st.number_input("💵 USD/TRY Kuru", value=float(dolar_kuru), step=0.01)
     
-    # KENDİNİZ BELİRLEYEBİLECEĞİNİZ ALANLAR
-    kur = st.number_input("💵 Dolar Kuru (TL)", value=float(dolar_kuru), step=0.01)
+    st.subheader("🛠️ İşçilik Ayarı")
+    gr_iscilik_usd = st.number_input("Gram Başı İşçilik ($)", value=1.0, step=0.1)
     
-    # İSTEDİĞİNİZ GRAM BAŞI İŞÇİLİK AYARI BURADA:
-    gr_iscilik_usd = st.number_input("🛠️ Gram Başı İşçilik ($)", value=1.0, step=0.1, help="Her 1 gram için eklenecek dolar bazlı işçilik")
+    st.subheader("📈 Standart Kesintiler (KDV Dahil)")
+    # Standart oranlar + %20 KDV eklenmiş halleri
+    trans_fee = 6.5 * 1.2  # %7.8
+    proc_fee = 6.5 * 1.2   # %7.8
+    reg_fee = 1.1 * 1.2    # %1.32
+    toplam_std_komisyon = trans_fee + proc_fee + reg_fee # Yaklaşık %16.92
     
-    komisyon = st.number_input("📈 Etsy Kesintisi (%)", value=20.0) / 100
-    indirim = st.number_input("🏷️ Mağaza İndirimi (%)", value=10.0) / 100
+    st.info(f"Standart Kesinti Yükü: %{toplam_std_komisyon:.2f}")
+    ek_komisyon = st.number_input("Ek Komisyon/Reklam (%)", value=0.0)
+    toplam_komisyon_orani = (toplam_std_komisyon + ek_komisyon) / 100
+    
     kargo = st.number_input("🚚 Kargo Ücreti (TL)", value=400.0)
-    listing_fee = 0.20 * kur
+    indirim = st.number_input("🏷️ Mağaza İndirimi (%)", value=10.0) / 100
 
 # --- ANA EKRAN ---
-st.title("💎 Etsy Akıllı Fiyatlandırma Paneli")
-st.markdown(f"""
-    <div style='background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #eee; color: #2c3e50;'>
-        <b>Altın Ons:</b> ${ons_altin:.2f} | <b>Gümüş Ons:</b> ${ons_gumus:.2f} | <b>İşçilik Oranı:</b> {gr_iscilik_usd}$/gr
-    </div>
-    """, unsafe_allow_html=True)
-st.write("")
+st.title("Etsy Profesyonel Fiyatlandırma")
+st.write(f"Maden Fiyatları: **Altın:** ${ons_altin:.2f} | **Gümüş:** ${ons_gumus:.2f}")
 
-# Ürün Ekleme Paneli
-with st.expander("➕ Yeni Ürün Kaydet", expanded=True):
+with st.expander("➕ Yeni Ürün Ekle", expanded=True):
     c1, c2, c3 = st.columns(3)
-    with c1:
-        u_ad = st.text_input("Ürün Adı")
-        u_kat = st.selectbox("Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Set"])
-    with c2:
-        u_maden = st.selectbox("Maden Türü", ["Gümüş", "Altın"])
-        u_gr = st.number_input("Ağırlık (Gram)", min_value=0.1, step=0.1)
-    with c3:
-        u_ek_iscilik = st.number_input("Ekstra Sabit İşçilik (TL)", value=0.0, help="Varsa taş/kaplama gibi ekstra TL masraf")
-        u_kar = st.number_input("Net Kar Hedefi (TL)", value=500.0)
+    u_ad = c1.text_input("Ürün Adı")
+    u_maden = c2.selectbox("Maden", ["Gümüş", "Altın"])
+    u_gr = c2.number_input("Ağırlık (Gram)", min_value=0.1)
+    u_ek_iscilik = c3.number_input("Ekstra Sabit İşçilik (TL)", value=0.0)
+    u_kar = c3.number_input("Hedef Kar (TL)", value=500.0)
     
-    if st.button("Listeye Ekle"):
+    if st.button("Listeye Kaydet"):
         if u_ad:
             st.session_state.urunler.append({
-                "Ürün": u_ad, "Kategori": u_kat, "Maden": u_maden,
-                "Gr": u_gr, "Ek İşçilik": u_ek_iscilik, "Hedef Kar": u_kar
+                "Ürün": u_ad, "Maden": u_maden, "Gr": u_gr, 
+                "Ek İşçilik": u_ek_iscilik, "Hedef Kar": u_kar
             })
             st.rerun()
 
-# --- TABLO VE HESAPLAMA ---
+# --- HESAPLAMA ---
 if st.session_state.urunler:
     df = pd.DataFrame(st.session_state.urunler)
     
     def hesapla(row):
-        # Maden Maliyeti
         ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
         maden_tl = (ons / 31.1035) * row['Gr'] * kur
-        
-        # İşçilik: (Gram x Sol tarafta belirlediğin dolar) + Ekstra Sabit TL
         iscilik_tl = (row['Gr'] * gr_iscilik_usd * kur) + row['Ek İşçilik']
-        
-        # Toplam Maliyet
         maliyet = maden_tl + iscilik_tl + kargo
         
-        # Satış Fiyatı
-        payda = 1 - (komisyon + indirim)
-        fiyat = (maliyet + row['Hedef Kar'] + listing_fee) / payda
+        # Formül: (Maliyet + Kar + ListingFee + Sabitİşlem) / (1 - (Komisyonlar + İndirim))
+        # Sabit 3 TL işlem ücreti + KDV (3.60 TL) buraya eklenmiştir
+        sabit_ucretler = (0.20 * kur) + 3.60 
+        payda = 1 - (toplam_komisyon_orani + indirim)
+        fiyat = (maliyet + row['Hedef Kar'] + sabit_ucretler) / payda
         return round(fiyat, 2)
 
-    df['GÜNCEL FİYAT (TL)'] = df.apply(hesapla, axis=1)
-    df['DOLAR FİYATI ($)'] = (df['GÜNCEL FİYAT (TL)'] / kur).round(2)
+    df['SATIŞ FİYATI (TL)'] = df.apply(hesapla, axis=1)
+    df['SATIŞ FİYATI ($)'] = (df['SATIŞ FİYATI (TL)'] / kur).round(2)
     
-    st.subheader("📊 Fiyat Listesi")
+    st.subheader("📊 Fiyat Çizelgesi")
     st.dataframe(df, use_container_width=True)
-    
+
     if st.button("🗑️ Listeyi Sıfırla"):
         st.session_state.urunler = []
         st.rerun()
-else:
-    st.info("Sol taraftan ayarları yapıp yukarıdan ürün ekleyerek başlayabilirsiniz.")
