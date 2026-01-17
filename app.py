@@ -54,7 +54,7 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (LOGO VE AYARLAR) ---
 with st.sidebar:
     try:
         logo_img = Image.open("logo.png")
@@ -96,6 +96,7 @@ with tab2:
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
                 img_data = image_to_base64(u_img)
+                # Sıralama: Ürün, Maden, Gr, Hedef Kar, GörselData, Kategori
                 sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat])
                 st.success(f"{u_ad} başarıyla eklendi!")
                 st.rerun()
@@ -118,9 +119,7 @@ with tab1:
         if view_mode == "🎨 Kartlar":
             cols = st.columns(4)
             for idx, row in filtered_df.reset_index().iterrows():
-                # Google Sheets satır numarası (index 0'dan başlar, başlık satırı +1, liste +1 = +2)
                 actual_row_idx = int(row['index']) + 2 
-                
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_kat = row.get('Kategori', 'Genel')
@@ -151,50 +150,38 @@ with tab1:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Düzenle ve Sil Butonları
-                    b_col1, b_col2 = st.columns(2)
-                    with b_col1:
+                    b1, b2 = st.columns(2)
+                    with b1:
                         if st.button(f"✏️ Düzenle", key=f"edit_btn_{actual_row_idx}"):
                             st.session_state[f"edit_mode_{actual_row_idx}"] = True
-                    with b_col2:
+                    with b2:
                         if st.button(f"🗑️ Kaldır", key=f"del_{actual_row_idx}"):
                             sheet.delete_rows(actual_row_idx)
                             st.rerun()
 
-                    # --- DÜZENLEME FORMU (Gelişmiş Versiyon) ---
-if st.session_state.get(f"edit_mode_{actual_row_idx}", False):
-    with st.form(key=f"edit_form_{actual_row_idx}"):
-        st.markdown(f"### ✏️ {m_ad} Düzenleniyor")
-        
-        new_name = st.text_input("Ürün İsmi", value=m_ad)
-        
-        col_edit1, col_edit2 = st.columns(2)
-        with col_edit1:
-            new_kat = st.selectbox("Yeni Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"], 
-                                    index=["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"].index(m_kat) if m_kat in ["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"] else 0)
-            new_maden = st.selectbox("Yeni Maden", ["Gümüş", "Altın"], 
-                                      index=0 if m_tur == "Gümüş" else 1)
-        with col_edit2:
-            new_gr = st.text_input("Yeni Gramaj", value=str(m_gram))
-            new_kar = st.number_input("Yeni Hedef Kar (TL)", value=float(m_hedef))
-        
-        f_col1, f_col2 = st.columns(2)
-        if f_col1.form_submit_button("✅ Değişiklikleri Kaydet"):
-            # Google Sheets Sütun Sıralamasına Göre Güncelleme:
-            # 1: Ürün Adı, 2: Maden, 3: Gramaj, 4: Hedef Kar, 6: Kategori (GörselData 5. sütun varsayılmıştır)
-            sheet.update_cell(actual_row_idx, 1, new_name)   # İsim
-            sheet.update_cell(actual_row_idx, 2, new_maden)  # Maden
-            sheet.update_cell(actual_row_idx, 3, new_gr.replace(',', '.')) # Gram
-            sheet.update_cell(actual_row_idx, 4, new_kar)   # Kar
-            sheet.update_cell(actual_row_idx, 6, new_kat)   # Kategori
-            
-            st.session_state[f"edit_mode_{actual_row_idx}"] = False
-            st.success("Ürün başarıyla güncellendi!")
-            st.rerun()
-            
-        if f_col2.form_submit_button("❌ İptal"):
-            st.session_state[f"edit_mode_{actual_row_idx}"] = False
-            st.rerun()
+                    if st.session_state.get(f"edit_mode_{actual_row_idx}", False):
+                        with st.form(key=f"edit_form_{actual_row_idx}"):
+                            st.write(f"✏️ {m_ad} Güncelle")
+                            new_name = st.text_input("Ürün İsmi", value=m_ad)
+                            new_kat = st.selectbox("Kategori", ["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"], 
+                                                 index=["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"].index(m_kat) if m_kat in ["Kolye", "Yüzük", "Küpe", "Bileklik", "Diğer"] else 0)
+                            new_maden = st.selectbox("Maden", ["Gümüş", "Altın"], index=0 if m_tur == "Gümüş" else 1)
+                            new_gr = st.text_input("Gramaj", value=str(m_gram))
+                            new_kar = st.number_input("Hedef Kar", value=float(m_hedef))
+                            
+                            f1, f2 = st.columns(2)
+                            if f1.form_submit_button("✅ Kaydet"):
+                                sheet.update_cell(actual_row_idx, 1, new_name)  # A: İsim
+                                sheet.update_cell(actual_row_idx, 2, new_maden) # B: Maden
+                                sheet.update_cell(actual_row_idx, 3, new_gr.replace(',', '.')) # C: Gram
+                                sheet.update_cell(actual_row_idx, 4, new_kar)  # D: Kar
+                                sheet.update_cell(actual_row_idx, 6, new_kat)  # F: Kategori
+                                st.session_state[f"edit_mode_{actual_row_idx}"] = False
+                                st.success("Güncellendi!")
+                                st.rerun()
+                            if f2.form_submit_button("❌ İptal"):
+                                st.session_state[f"edit_mode_{actual_row_idx}"] = False
+                                st.rerun()
         else:
             st.dataframe(filtered_df, use_container_width=True)
     else:
