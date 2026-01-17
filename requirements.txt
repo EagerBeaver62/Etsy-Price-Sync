@@ -1,37 +1,6 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-import base64
-from io import BytesIO
-from PIL import Image
-
-# 1. Google Sheets Bağlantısı
-# NOT: Streamlit Cloud üzerinde "Secrets" kısmına JSON eklemek en güvenlisidir.
-# Şimdilik en hızlı yöntem için link üzerinden erişim yetkisi verdik.
-def get_gsheet_data(sheet_id):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
-    return pd.read_csv(url)
-
-def save_to_gsheet(df, sheet_id):
-    # Bu kısım yazma yetkisi için Google Cloud Console üzerinden 'Service Account' gerektirir.
-    # Şimdilik CSV yapısını koruyalım, eğer profesyonel yazma yetkisi istersen 
-    # sana JSON key dosyasını nereye koyacağını anlatabilirim.
-    df.to_csv("urun_veritabani.csv", index=False)
-
-# --- TASARIM VE PANEL KODU (AYNI KALIYOR) ---
-st.set_page_config(page_title="Etsy Profesyonel Dashboard", layout="wide")
-
-# ... (Daha önceki görsel işleme ve piyasa verileri kodları buraya gelecek) ...
-
-# Sadece Veri Yükleme Kısmını Değiştiriyoruz:
-SHEET_ID = "https://docs.google.com/spreadsheets/d/1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E/edit?usp=sharing"
-
-if 'urunler' not in st.session_state:
-    try:
-        st.session_state.urunler = get_gsheet_data(SHEET_ID).to_dict('records')
-    except:
-        st.session_state.urunler = []
-
-# ... (Geri kalan tüm görsel, sidebar ve hesaplama kodlarını aynen kullanabilirsin) ...
+streamlit
+pandas
+yfinance
+Pillow
+gspread
+google-auth
