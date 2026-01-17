@@ -18,20 +18,27 @@ def get_gsheet_client():
         client = gspread.authorize(creds)
         return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
     except Exception as e:
-        st.error(f"Bağlantı Hatası: {e}")
         return None
 
-# --- GÖRSEL İŞLEME (GÜÇLENDİRİLMİŞ SIKIŞTIRMA) ---
+# --- GÖRSEL İŞLEME (EKSTRA SIKIŞTIRILMIŞ) ---
 def image_to_base64(image_file):
     if image_file is not None:
         try:
             img = Image.open(image_file)
-            if img.mode in ("RGBA", "P"): img = img.convert("RGB")
-            img.thumbnail((100, 100)) # Daha da küçültüldü
+            # Standart renk formatına zorla
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            
+            # Boyutu minimuma indir (Hücrede yer kaplamaması için)
+            img.thumbnail((80, 80)) 
+            
             buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=30, optimize=True) # Maksimum sıkıştırma
+            # Kaliteyi %20'ye düşürerek veriyi çok hafifletiyoruz
+            img.save(buffered, format="JPEG", quality=20, optimize=True)
+            
             return base64.b64encode(buffered.getvalue()).decode()
-        except: return ""
+        except:
+            return ""
     return ""
 
 @st.cache_data(ttl=3600)
@@ -43,7 +50,7 @@ def piyasa_verileri():
         return dolar, altin, gumus
     except: return 35.0, 2650.0, 31.0
 
-# --- VERİLERİ ÇEK ---
+# --- VERİLERİ HAZIRLA ---
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 sheet = get_gsheet_client()
 
@@ -53,20 +60,7 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- TASARIM ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #F8F9FA; }
-    .product-card {
-        background-color: white; padding: 15px; border-radius: 12px;
-        border: 1px solid #eee; text-align: center; margin-bottom: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-    }
-    .delete-btn button { background-color: #ff4b4b !important; color: white !important; font-size: 12px !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- SIDEBAR ---
+# --- SIDEBAR (AYARLAR) ---
 with st.sidebar:
     st.title("⚙️ Ayarlar")
     kur = st.number_input("💵 Dolar Kuru", value=float(dolar_kuru))
@@ -92,6 +86,7 @@ with tab2:
         if st.form_submit_button("Kaydet ve Gönder"):
             if u_ad and sheet:
                 img_b64 = image_to_base64(u_img)
+                # Google Sheets'e yeni satırı ekle
                 sheet.append_row([u_ad, u_maden, u_gr, u_kar, img_b64])
                 st.success("Ürün eklendi!")
                 st.rerun()
@@ -101,37 +96,46 @@ with tab1:
         if view_mode == "🎨 Kart Görünümü":
             cols = st.columns(4)
             for idx, row in df.iterrows():
-                ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
-                maliyet = ((ons/31.1035) * float(row['Gr']) * kur) + (float(row['Gr']) * gr_iscilik * kur) + kargo
-                fiyat = (maliyet + float(row['Hedef Kar'])) / (1 - (komisyon + indirim/100))
+                m_ad = row.get('Ürün', '-')
+                m_tur = row.get('Maden', 'Gümüş')
+                m_gram = float(row.get('Gr', 0))
+                m_hedef = float(row.get('Hedef Kar', 0))
+                m_img = row.get('GörselData', '')
+
+                ons = ons_altin if m_tur == "Altın" else ons_gumus
+                maliyet = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
+                fiyat = (maliyet + m_hedef) / (1 - (komisyon + indirim/100))
                 
-                img_src = f"data:image/jpeg;base64,{row['GörselData']}" if row['GörselData'] else ""
+                img_src = f"data:image/jpeg;base64,{m_img}" if m_img else ""
                 
                 with cols[idx % 4]:
                     st.markdown(f"""
-                    <div class="product-card">
-                        <img src="{img_src}" style="width:100%; height:120px; object-fit:contain;">
-                        <p style="font-weight:bold; margin-top:5px;">{row['Ürün']}</p>
+                    <div style="background-color:white; padding:15px; border-radius:12px; border:1px solid #ddd; text-align:center; margin-bottom:10px;">
+                        <img src="{img_src}" style="width:100%; height:120px; object-fit:contain; background-color:#f9f9f9;">
+                        <p style="font-weight:bold; margin-top:5px; height:20px; overflow:hidden;">{m_ad}</p>
                         <h3 style="color:#861211;">{round(fiyat, 2)} ₺</h3>
+                        <p style="color:gray; font-size:14px;">$ {round(fiyat/kur, 2)}</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button(f"🗑️ Sil: {row['Ürün']}", key=f"del_{idx}"):
-                        sheet.delete_rows(idx + 2) # Başlık satırı + 0-index dengesi
+                    if st.button(f"🗑️ Sil", key=f"del_{idx}"):
+                        sheet.delete_rows(idx + 2)
                         st.rerun()
         
-        else: # Liste Görünümü
+        else: # LİSTE GÖRÜNÜMÜ
             st.subheader("Ürün Fiyat Listesi")
-            df_display = df.copy()
-            # Fiyatları hesaplayıp tabloya ekleyelim
-            prices = []
+            df_list = df.copy()
+            final_prices = []
             for _, r in df.iterrows():
-                ons = ons_altin if r['Maden'] == "Altın" else ons_gumus
-                m = ((ons/31.1035) * float(r['Gr']) * kur) + (float(r['Gr']) * gr_iscilik * kur) + kargo
-                f = (m + float(r['Hedef Kar'])) / (1 - (komisyon + indirim/100))
-                prices.append(f"{round(f, 2)} ₺")
+                m_tur = r.get('Maden', 'Gümüş')
+                m_gram = float(r.get('Gr', 0))
+                m_hedef = float(r.get('Hedef Kar', 0))
+                ons = ons_altin if m_tur == "Altın" else ons_gumus
+                m = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
+                f = (m + m_hedef) / (1 - (komisyon + indirim/100))
+                final_prices.append(f"{round(f, 2)} ₺")
             
-            df_display['Hesaplanan Fiyat'] = prices
-            st.table(df_display[['Ürün', 'Maden', 'Gr', 'Hesaplanan Fiyat']])
+            df_list['Hesaplanan Fiyat'] = final_prices
+            st.dataframe(df_list[['Ürün', 'Maden', 'Gr', 'Hesaplanan Fiyat']], use_container_width=True)
 
     else:
         st.info("Henüz ürün bulunmuyor.")
