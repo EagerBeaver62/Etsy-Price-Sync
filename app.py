@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 import base64
 from io import BytesIO
 from PIL import Image
+import datetime
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Etsy Profesyonel Dashboard", layout="wide", page_icon="💎")
@@ -32,16 +33,19 @@ def image_to_base64(image_file):
         except: return ""
     return ""
 
-@st.cache_data(ttl=3600)
+# --- PİYASA VERİLERİ (ANLIK GÜNCELLEME DESTEKLİ) ---
+@st.cache_data(ttl=120)  # 2 dakikada bir veriyi yeniler
 def piyasa_verileri():
     try:
         dolar = yf.Ticker("USDTRY=X").history(period="1d")['Close'].iloc[-1]
         altin = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
         gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
-        return dolar, altin, gumus
-    except: return 43.27, 2650.0, 31.0
+        saat = datetime.datetime.now().strftime("%H:%M:%S")
+        return dolar, altin, gumus, saat
+    except: 
+        return 43.27, 2650.0, 31.0, "Bilinmiyor"
 
-dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
+dolar_kuru, ons_altin, ons_gumus, son_guncelleme = piyasa_verileri()
 sheet = get_gsheet_client()
 
 if sheet:
@@ -53,17 +57,20 @@ else:
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Global Ayarlar")
+    st.success(f"🕒 **Piyasa Verisi Güncel**\nSon Kontrol: {son_guncelleme}")
+    
     kur = st.number_input("💵 Dolar Kuru", value=float(dolar_kuru), format="%.2f")
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.5, format="%.2f")
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim_oran = st.number_input("🏷️ Etsy İndirim (%)", value=10.0)
-    etsy_komisyon = 0.17 # Sabit %17 (Transaction + Payment + Offsite ortalama)
+    etsy_komisyon = 0.17 
     
     st.divider()
     view_mode = st.radio("Görünüm", ["🎨 Kartlar", "📋 Liste"])
 
 # --- ANA EKRAN ---
 st.title("💎 Etsy Akıllı Fiyat & Stok Paneli")
+
 tab1, tab2 = st.tabs(["📊 Ürün Yönetimi", "➕ Yeni Ürün Ekle"])
 
 with tab2:
@@ -75,28 +82,27 @@ with tab2:
             u_maden = st.selectbox("Maden", ["Gümüş", "Altın"])
         with col2:
             u_gr = st.text_input("Gramaj (Örn: 3.5)", value="0.0")
-            u_kar = st.number_input("Hedef Net Kar (TL)", value=2000.0)
+            u_kar = st.number_input("Hedef Net Kar (TL)", value=2500.0)
             u_img = st.file_uploader("Görsel Yükle", type=["jpg", "png"])
             
         if st.form_submit_button("Sisteme Kaydet"):
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
                 img_data = image_to_base64(u_img)
-                # Yeni sütun düzeni: Ürün, Maden, Gr, Hedef Kar, GörselData, Kategori
                 sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat])
                 st.success(f"{u_ad} başarıyla eklendi!")
                 st.rerun()
 
 with tab1:
     if not df.empty:
-        # --- GELİŞMİŞ FİLTRELEME ---
         c1, c2 = st.columns([3, 1])
         with c1:
             search = st.text_input("🔍 İsimle ara...", "").lower()
         with c2:
-            kat_filtre = st.selectbox("📁 Kategori", ["Hepsi"] + list(df['Kategori'].unique() if 'Kategori' in df.columns else []))
+            kat_liste = ["Hepsi"] + list(df['Kategori'].unique()) if 'Kategori' in df.columns else ["Hepsi"]
+            kat_filtre = st.selectbox("📁 Kategori", kat_liste)
 
-        # Filtreleme Uygula
+        # Filtreleme
         mask = df['Ürün'].astype(str).str.lower().str.contains(search)
         if kat_filtre != "Hepsi":
             mask = mask & (df['Kategori'] == kat_filtre)
@@ -106,7 +112,6 @@ with tab1:
         if view_mode == "🎨 Kartlar":
             cols = st.columns(4)
             for idx, row in filtered_df.reset_index().iterrows():
-                # Veri çekme
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_kat = row.get('Kategori', 'Genel')
@@ -122,18 +127,18 @@ with tab1:
                 iscilik_maliyet = m_gram * gr_iscilik * kur
                 toplam_maliyet = maden_maliyet + iscilik_maliyet + kargo
                 
-                # Etsy Satış Fiyatı (Tersten Kar Hesabı)
+                # Etsy Satış Fiyatı (Masraflar bindirilmiş hali)
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                        <div style="font-size:10px; color:white; background:#bd93f9; width:60px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <div style="font-size:10px; color:white; background:#5758BB; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
                         <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px; background:#fcfcfc;">
-                        <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px;">{m_ad}</p>
-                        <h2 style="color:#e17055; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
+                        <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
+                        <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
                         <div style="display:flex; justify-content:space-around; margin-top:5px; border-top:1px solid #f1f1f1; padding-top:5px;">
-                            <span style="font-size:11px; color:#636e72;"><b>Net Kar:</b> {round(m_hedef,0)}₺</span>
+                            <span style="font-size:11px; color:#636e72;"><b>Net:</b> {round(m_hedef,0)}₺</span>
                             <span style="font-size:11px; color:#636e72;"><b>Dolar:</b> ${round(satis_fiyati/kur,2)}</span>
                         </div>
                     </div>
@@ -144,4 +149,4 @@ with tab1:
         else:
             st.dataframe(filtered_df, use_container_width=True)
     else:
-        st.info("Henüz veri yok, 'Yeni Ürün' kısmından ekleme yapabilirsiniz.")
+        st.info("Henüz veri yok.")
