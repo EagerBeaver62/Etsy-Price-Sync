@@ -10,9 +10,10 @@ from PIL import Image
 st.set_page_config(page_title="Etsy Profesyonel Dashboard", layout="wide", page_icon="💎")
 
 # --- GOOGLE SHEETS AYARI ---
-# BURAYI DEĞİŞTİR: Google Sheet linkindeki uzun ID'yi yapıştır
-SHEET_ID = "1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E" 
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E/edit?usp=sharing"
+# SADECE ID'YI BURAYA YAZMAN YETERLI
+SHEET_ID = "1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E"
+# Kodun anlayacağı CSV formatındaki link:
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
 
 # --- FONKSİYONLAR ---
 def image_to_base64(image_file):
@@ -28,9 +29,16 @@ def verileri_yukle():
     try:
         # Google Sheets'ten oku
         df = pd.read_csv(SHEET_URL)
+        # Sütun isimlerindeki boşlukları temizle
+        df.columns = [c.strip() for c in df.columns]
+        
+        # Eğer Sheet boş değilse ama sütunlar eksikse hata vermemesi için kontrol
+        if 'Ürün' not in df.columns:
+            return []
+            
         return df.to_dict('records')
     except Exception as e:
-        # Eğer Sheet boşsa veya hata verirse yerel dosyaya bak
+        # Eğer Sheet'e ulaşılamazsa yerel CSV'ye bak
         if os.path.exists("urun_veritabani.csv"):
             return pd.read_csv("urun_veritabani.csv").to_dict('records')
         return []
@@ -38,8 +46,6 @@ def verileri_yukle():
 def verileri_kaydet(urunler):
     df = pd.DataFrame(urunler)
     df.to_csv("urun_veritabani.csv", index=False)
-    # Not: Direkt Sheets'e yazma işlemi için Google Cloud yetkisi gerekir.
-    # Şimdilik yerel veritabanına yazar, Sheets'ten güncel listeyi çeker.
 
 # --- TASARIM (CSS) ---
 st.markdown("""
@@ -53,6 +59,7 @@ st.markdown("""
     .product-card {
         background-color: white; padding: 15px; border-radius: 12px;
         border: 1px solid #eee; text-align: center; margin-bottom: 20px;
+        min-height: 350px;
     }
     div.stButton > button { background-color: #861211 !important; color: white !important; font-weight: bold !important; width: 100%; }
     </style>
@@ -67,11 +74,11 @@ def piyasa_verileri():
         gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
         return dolar, altin, gumus
     except:
-        return 34.8, 2650.0, 31.0
+        return 43.18, 2650.0, 31.0
 
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 
-# Verileri yükle
+# Veri yükleme tetikleyicisi
 if 'urunler' not in st.session_state:
     st.session_state.urunler = verileri_yukle()
 
@@ -122,47 +129,57 @@ with tab1:
             }
             st.session_state.urunler.append(yeni_urun)
             verileri_kaydet(st.session_state.urunler)
-            st.success(f"{u_ad} kaydedildi!")
+            st.success(f"{u_ad} kaydedildi! Sayfayı yenileyince listede görünecektir.")
         else:
             st.error("Ürün adı giriniz.")
 
 with tab2:
     if st.session_state.urunler:
-        df = pd.DataFrame(st.session_state.urunler)
+        df_display = pd.DataFrame(st.session_state.urunler)
         
         def hesapla(row):
-            ons = ons_altin if row['Maden'] == "Altın" else ons_gumus
-            maden_tl = (ons / 31.1035) * row['Gr'] * kur
-            iscilik_tl = row['Gr'] * gr_iscilik_usd * kur
-            maliyet_toplam = maden_tl + iscilik_tl + kargo_maliyeti
-            sabitler = (0.20 * kur) + 3.60 
-            payda = 1 - (toplam_komisyon_orani + (indirim_oran/100))
-            fiyat = (maliyet_toplam + row['Hedef Kar'] + sabitler) / payda
-            return round(fiyat, 2)
+            try:
+                # Sütun isimleri tam eşleşmezse hata almamak için .get kullanıyoruz
+                maden = row.get('Maden', 'Gümüş')
+                gram = float(row.get('Gr', 0))
+                kar_hedefi = float(row.get('Hedef Kar', 0))
+                
+                ons = ons_altin if maden == "Altın" else ons_gumus
+                maden_tl = (ons / 31.1035) * gram * kur
+                iscilik_tl = gram * gr_iscilik_usd * kur
+                maliyet_toplam = maden_tl + iscilik_tl + kargo_maliyeti
+                sabitler = (0.20 * kur) + 3.60 
+                payda = 1 - (toplam_komisyon_orani + (indirim_oran/100))
+                fiyat = (maliyet_toplam + kar_hedefi + sabitler) / payda
+                return round(fiyat, 2)
+            except:
+                return 0.0
 
         st.subheader(f"Portföy Analizi ({bolge})")
         cols = st.columns(4)
         
-        for idx, row in df.iterrows():
+        for idx, row in df_display.iterrows():
             fiyat_tl = hesapla(row)
             fiyat_usd = round(fiyat_tl / kur, 2)
-            img_src = f"data:image/png;base64,{row['GörselData']}" if pd.notna(row.get('GörselData')) else "https://img.icons8.com/fluency/96/diamond.png"
+            img_src = f"data:image/png;base64,{row.get('GörselData')}" if pd.notna(row.get('GörselData')) else "https://img.icons8.com/fluency/96/diamond.png"
             
             with cols[idx % 4]:
                 st.markdown(f"""
                 <div class="product-card">
                     <img src="{img_src}" style="width:100%; height:150px; object-fit:cover; border-radius:8px;">
-                    <h4 style="margin:10px 0 5px 0;">{row['Ürün']}</h4>
-                    <p style="color:#861211; font-weight:bold; margin:0; font-size:1.1rem;">{fiyat_tl} ₺</p>
+                    <h4 style="margin:10px 0 5px 0;">{row.get('Ürün', 'İsimsiz')}</h4>
+                    <p style="color:#861211; font-weight:bold; margin:0; font-size:1.2rem;">{fiyat_tl} ₺</p>
                     <p style="color:#2B7574; margin:0;">$ {fiyat_usd}</p>
                     <hr style="margin:8px 0;">
-                    <small>Hedef Kar: {row['Hedef Kar']} ₺</small>
+                    <small>{row.get('Gr', 0)}g {row.get('Maden', '')}</small><br>
+                    <small>Hedef Kar: {row.get('Hedef Kar', 0)} ₺</small>
                 </div>
                 """, unsafe_allow_html=True)
         
-        if st.button("🗑️ Portföyü Temizle"):
+        st.write("---")
+        if st.button("🗑️ Portföyü Temizle (Sadece Panelden)"):
             st.session_state.urunler = []
             if os.path.exists("urun_veritabani.csv"): os.remove("urun_veritabani.csv")
             st.rerun()
     else:
-        st.info("Ürün bulunamadı.")
+        st.info("Ürün bulunamadı. Lütfen Google Sheet başlıklarını (Ürün, Maden, Gr, Hedef Kar, GörselData) kontrol edin.")
