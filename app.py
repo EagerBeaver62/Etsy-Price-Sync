@@ -92,4 +92,56 @@ with tab1:
         # --- GELİŞMİŞ FİLTRELEME ---
         c1, c2 = st.columns([3, 1])
         with c1:
-            search = st.text_input("🔍 İsimle ara
+            search = st.text_input("🔍 İsimle ara...", "").lower()
+        with c2:
+            kat_filtre = st.selectbox("📁 Kategori", ["Hepsi"] + list(df['Kategori'].unique() if 'Kategori' in df.columns else []))
+
+        # Filtreleme Uygula
+        mask = df['Ürün'].astype(str).str.lower().str.contains(search)
+        if kat_filtre != "Hepsi":
+            mask = mask & (df['Kategori'] == kat_filtre)
+        
+        filtered_df = df[mask]
+
+        if view_mode == "🎨 Kartlar":
+            cols = st.columns(4)
+            for idx, row in filtered_df.reset_index().iterrows():
+                # Veri çekme
+                m_ad = row.get('Ürün', 'Adsız')
+                m_tur = row.get('Maden', 'Gümüş')
+                m_kat = row.get('Kategori', 'Genel')
+                try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
+                except: m_gram = 0.0
+                try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
+                except: m_hedef = 0.0
+                m_img = row.get('GörselData', '')
+
+                # HESAPLAMA MOTORU
+                ons = ons_altin if m_tur == "Altın" else ons_gumus
+                maden_maliyet = (ons / 31.1035) * m_gram * kur
+                iscilik_maliyet = m_gram * gr_iscilik * kur
+                toplam_maliyet = maden_maliyet + iscilik_maliyet + kargo
+                
+                # Etsy Satış Fiyatı (Tersten Kar Hesabı)
+                satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
+                
+                with cols[idx % 4]:
+                    st.markdown(f"""
+                    <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+                        <div style="font-size:10px; color:white; background:#bd93f9; width:60px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px; background:#fcfcfc;">
+                        <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px;">{m_ad}</p>
+                        <h2 style="color:#e17055; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
+                        <div style="display:flex; justify-content:space-around; margin-top:5px; border-top:1px solid #f1f1f1; padding-top:5px;">
+                            <span style="font-size:11px; color:#636e72;"><b>Net Kar:</b> {round(m_hedef,0)}₺</span>
+                            <span style="font-size:11px; color:#636e72;"><b>Dolar:</b> ${round(satis_fiyati/kur,2)}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"🗑️ Kaldır", key=f"btn_{row['index']}"):
+                        sheet.delete_rows(int(row['index']) + 2)
+                        st.rerun()
+        else:
+            st.dataframe(filtered_df, use_container_width=True)
+    else:
+        st.info("Henüz veri yok, 'Yeni Ürün' kısmından ekleme yapabilirsiniz.")
