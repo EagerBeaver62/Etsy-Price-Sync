@@ -17,10 +17,10 @@ def get_gsheet_client():
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
-    except Exception as e:
+    except:
         return None
 
-# --- GÖRSEL İŞLEME (EKSTRA SIKIŞTIRILMIŞ) ---
+# --- GÖRSEL İŞLEME ---
 def image_to_base64(image_file):
     if image_file is not None:
         try:
@@ -42,16 +42,12 @@ def piyasa_verileri():
         return dolar, altin, gumus
     except: return 43.0, 2650.0, 31.0
 
-# --- VERİLERİ HAZIRLA ---
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 sheet = get_gsheet_client()
 
 if sheet:
-    try:
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-    except:
-        df = pd.DataFrame()
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
 else:
     df = pd.DataFrame()
 
@@ -63,7 +59,6 @@ with st.sidebar:
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim = st.number_input("🏷️ İndirim (%)", value=10.0)
     komisyon = 0.17
-    st.divider()
     view_mode = st.radio("Görünüm Seçimi", ["🎨 Kart Görünümü", "📋 Liste Görünümü"])
 
 # --- ANA EKRAN ---
@@ -74,13 +69,15 @@ with tab2:
     with st.form("ekle_form", clear_on_submit=True):
         u_ad = st.text_input("Ürün Adı")
         u_maden = st.selectbox("Maden", ["Gümüş", "Altın"])
-        u_gr = st.number_input("Gram (Nokta kullanın örn: 3.5)", value=0.0, step=0.01, format="%.2f")
+        u_gr = st.text_input("Gram (Örn: 3.5)", value="0.0") # Text input olarak aldık
         u_kar = st.number_input("Hedef Kar (TL)", value=2000.0)
         u_img = st.file_uploader("Ürün Görseli")
         if st.form_submit_button("Kaydet ve Gönder"):
             if u_ad and sheet:
+                # Veriyi gönderirken sayıya çeviriyoruz ama Google'ın bozmasını engelliyoruz
+                safe_gr = u_gr.replace(',', '.')
                 img_b64 = image_to_base64(u_img)
-                sheet.append_row([u_ad, u_maden, u_gr, u_kar, img_b64])
+                sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_b64])
                 st.success("Ürün eklendi!")
                 st.rerun()
 
@@ -91,13 +88,16 @@ with tab1:
             for idx, row in df.iterrows():
                 m_ad = str(row.get('Ürün', '-'))
                 m_tur = str(row.get('Maden', 'Gümüş'))
-                # Sayısal veri dönüşümü
-                try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
+                # Sayı dönüştürme mantığı güçlendirildi
+                try: 
+                    raw_gr = str(row.get('Gr', '0')).replace(',', '.')
+                    m_gram = float(raw_gr)
                 except: m_gram = 0.0
+                
                 try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
                 except: m_hedef = 0.0
-                m_img = str(row.get('GörselData', ''))
                 
+                m_img = str(row.get('GörselData', ''))
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maliyet = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
                 fiyat = (maliyet + m_hedef) / (1 - (komisyon + indirim/100))
@@ -105,48 +105,16 @@ with tab1:
                 
                 with cols[idx % 4]:
                     st.markdown(f"""
-                    <div style="background-color:white; padding:10px; border-radius:10px; border:1px solid #ddd; text-align:center; margin-bottom:5px;">
+                    <div style="background-color:white; padding:10px; border-radius:10px; border:1px solid #ddd; text-align:center;">
                         <img src="{img_src}" style="width:100%; height:100px; object-fit:contain;">
-                        <p style="font-weight:bold; margin:5px 0; font-size:14px;">{m_ad}</p>
+                        <p style="font-weight:bold; margin:5px 0;">{m_ad}</p>
                         <h4 style="color:#861211; margin:0;">{round(fiyat, 2)} ₺</h4>
-                        <p style="color:gray; font-size:12px;">{m_gram} gr / $ {round(fiyat/kur, 2)}</p>
+                        <p style="color:gray; font-size:12px;">{m_gram} gr</p>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.button("📝 Düzenle", key=f"ed_{idx}"):
-                            st.session_state[f"edit_{idx}"] = True
-                    with c2:
-                        if st.button("🗑️ Sil", key=f"del_{idx}"):
-                            sheet.delete_rows(idx + 2)
-                            st.rerun()
-
-                    if st.session_state.get(f"edit_{idx}", False):
-                        with st.form(f"form_{idx}"):
-                            n_ad = st.text_input("Ad", value=m_ad)
-                            n_gr = st.number_input("Gram", value=m_gram, format="%.2f")
-                            n_kar = st.number_input("Kar (TL)", value=m_hedef)
-                            if st.form_submit_button("Tamam"):
-                                sheet.update_cell(idx + 2, 1, n_ad)
-                                sheet.update_cell(idx + 2, 3, n_gr)
-                                sheet.update_cell(idx + 2, 4, n_kar)
-                                st.session_state[f"edit_{idx}"] = False
-                                st.rerun()
+                    if st.button("🗑️ Sil", key=f"del_{idx}"):
+                        sheet.delete_rows(idx + 2)
+                        st.rerun()
         else:
-            # Liste görünümü için fiyatları hesapla
-            df_list = df.copy()
-            prices = []
-            for _, r in df.iterrows():
-                try: g = float(str(r.get('Gr', 0)).replace(',', '.'))
-                except: g = 0.0
-                try: h = float(str(r.get('Hedef Kar', 0)).replace(',', '.'))
-                except: h = 0.0
-                o = ons_altin if r.get('Maden') == "Altın" else ons_gumus
-                m = ((o/31.1035) * g * kur) + (g * gr_iscilik * kur) + kargo
-                f = (m + h) / (1 - (komisyon + indirim/100))
-                prices.append(f"{round(f, 2)} ₺")
-            df_list['Hesaplanan Fiyat'] = prices
-            st.dataframe(df_list[['Ürün', 'Maden', 'Gr', 'Hesaplanan Fiyat']], use_container_width=True)
-    else:
-        st.info("Ürün bulunamadı. Lütfen yeni ürün ekleyin.")
+            st.dataframe(df[['Ürün', 'Maden', 'Gr', 'Hedef Kar']], use_container_width=True)
