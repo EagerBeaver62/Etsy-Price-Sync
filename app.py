@@ -6,10 +6,15 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 1. Sayfa Ayarları
+# --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Etsy Profesyonel Dashboard", layout="wide", page_icon="💎")
 
-# --- GÖRSEL İŞLEME ---
+# --- GOOGLE SHEETS AYARI ---
+# BURAYI DEĞİŞTİR: Google Sheet linkindeki uzun ID'yi yapıştır
+SHEET_ID = "1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E" 
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E/edit?usp=sharing"
+
+# --- FONKSİYONLAR ---
 def image_to_base64(image_file):
     if image_file is not None:
         img = Image.open(image_file)
@@ -19,42 +24,41 @@ def image_to_base64(image_file):
         return base64.b64encode(buffered.getvalue()).decode()
     return None
 
-# --- VERİ SAKLAMA (KALICILIK) ---
-DB_FILE = "urun_veritabani.csv"
-
 def verileri_yukle():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE).to_dict('records')
-    return []
+    try:
+        # Google Sheets'ten oku
+        df = pd.read_csv(SHEET_URL)
+        return df.to_dict('records')
+    except Exception as e:
+        # Eğer Sheet boşsa veya hata verirse yerel dosyaya bak
+        if os.path.exists("urun_veritabani.csv"):
+            return pd.read_csv("urun_veritabani.csv").to_dict('records')
+        return []
 
 def verileri_kaydet(urunler):
     df = pd.DataFrame(urunler)
-    df.to_csv(DB_FILE, index=False)
+    df.to_csv("urun_veritabani.csv", index=False)
+    # Not: Direkt Sheets'e yazma işlemi için Google Cloud yetkisi gerekir.
+    # Şimdilik yerel veritabanına yazar, Sheets'ten güncel listeyi çeker.
 
-# --- TASARIM (ALONE RENK PALETİ) ---
-st.markdown(f"""
+# --- TASARIM (CSS) ---
+st.markdown("""
     <style>
-    .stApp {{ background-color: #E2E2E0; }}
-    [data-testid="stSidebar"] {{ background-color: #0E2931 !important; }}
-    [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] label, [data-testid="stSidebar"] h1 {{ color: #E2E2E0 !important; }}
-    .fee-badge {{
+    .stApp { background-color: #E2E2E0; }
+    [data-testid="stSidebar"] { background-color: #0E2931 !important; }
+    .fee-badge {
         background-color: #2B7574; color: white; padding: 15px; border-radius: 10px;
         border-left: 5px solid #861211; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        margin-top: 20px; font-size: 0.9rem;
-    }}
-    div[data-testid="stExpander"], .stDataFrame, .stTabs {{
-        background-color: white !important; border-radius: 12px !important;
-        padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05) !important;
-    }}
-    .product-card {{
+    }
+    .product-card {
         background-color: white; padding: 15px; border-radius: 12px;
         border: 1px solid #eee; text-align: center; margin-bottom: 20px;
-    }}
-    div.stButton > button {{ background-color: #861211 !important; color: white !important; font-weight: bold !important; width: 100%; }}
+    }
+    div.stButton > button { background-color: #861211 !important; color: white !important; font-weight: bold !important; width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- VERİ ÇEKME ---
+# --- PİYASA VERİLERİ ---
 @st.cache_data(ttl=3600)
 def piyasa_verileri():
     try:
@@ -67,33 +71,28 @@ def piyasa_verileri():
 
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 
+# Verileri yükle
 if 'urunler' not in st.session_state:
     st.session_state.urunler = verileri_yukle()
 
-# --- SIDEBAR: YÖNETİM PANELİ ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("Yönetim Paneli")
     kur = st.number_input("💵 USD/TRY Kuru", value=float(dolar_kuru), step=0.01)
     gr_iscilik_usd = st.number_input("🛠️ Gram Başı İşçilik ($)", value=1.0, step=0.1)
     
-    # BÖLGE VE KARGO AYARI
-    bolge = st.selectbox("Teslimat Bölgesi", ["Amerika", "Avrupa (Belçika vb.)"])
-    if bolge == "Amerika":
-        kargo_maliyeti = st.number_input("🚚 Kargo Ücreti (TL)", value=400.0)
-    else:
-        kargo_maliyeti = st.number_input("🚚 Kargo Ücreti (TL)", value=850.0)
+    bolge = st.selectbox("Teslimat Bölgesi", ["Amerika", "Avrupa"])
+    kargo_maliyeti = 400.0 if bolge == "Amerika" else 850.0
+    kargo_maliyeti = st.number_input("🚚 Kargo Ücreti (TL)", value=kargo_maliyeti)
         
     indirim_oran = st.number_input("🏷️ Mağaza İndirimi (%)", value=10.0)
-    
-    toplam_komisyon_orani = 0.1692 # Faturandaki standart KDV dahil kesinti %16.92
+    toplam_komisyon_orani = 0.1692 
 
     st.markdown(f"""
         <div class="fee-badge">
             <b>🛡️ Etsy Kesintileri (Net)</b><br>
             • Komisyonlar + KDV: %{toplam_komisyon_orani*100:.2f}<br>
-            • İndirimin: %{indirim_oran}<br>
-            <b>TOPLAM YÜK: %{toplam_komisyon_orani*100 + indirim_oran:.2f}</b><br>
-            <small>*+ 0.20$ Listeleme & 3.60₺ İşlem</small>
+            <b>TOPLAM YÜK: %{toplam_komisyon_orani*100 + indirim_oran:.2f}</b>
         </div>
     """, unsafe_allow_html=True)
 
@@ -117,10 +116,11 @@ with tab1:
     if st.button("Ürünü Portföye Ekle"):
         if u_ad:
             img_base64 = image_to_base64(uploaded_file)
-            st.session_state.urunler.append({
+            yeni_urun = {
                 "Ürün": u_ad, "Maden": u_maden, "Gr": u_gr, 
                 "Hedef Kar": u_kar, "GörselData": img_base64
-            })
+            }
+            st.session_state.urunler.append(yeni_urun)
             verileri_kaydet(st.session_state.urunler)
             st.success(f"{u_ad} kaydedildi!")
         else:
@@ -135,7 +135,6 @@ with tab2:
             maden_tl = (ons / 31.1035) * row['Gr'] * kur
             iscilik_tl = row['Gr'] * gr_iscilik_usd * kur
             maliyet_toplam = maden_tl + iscilik_tl + kargo_maliyeti
-            
             sabitler = (0.20 * kur) + 3.60 
             payda = 1 - (toplam_komisyon_orani + (indirim_oran/100))
             fiyat = (maliyet_toplam + row['Hedef Kar'] + sabitler) / payda
@@ -147,7 +146,7 @@ with tab2:
         for idx, row in df.iterrows():
             fiyat_tl = hesapla(row)
             fiyat_usd = round(fiyat_tl / kur, 2)
-            img_src = f"data:image/png;base64,{row['GörselData']}" if pd.notna(row['GörselData']) else "https://img.icons8.com/fluency/96/diamond.png"
+            img_src = f"data:image/png;base64,{row['GörselData']}" if pd.notna(row.get('GörselData')) else "https://img.icons8.com/fluency/96/diamond.png"
             
             with cols[idx % 4]:
                 st.markdown(f"""
@@ -157,14 +156,13 @@ with tab2:
                     <p style="color:#861211; font-weight:bold; margin:0; font-size:1.1rem;">{fiyat_tl} ₺</p>
                     <p style="color:#2B7574; margin:0;">$ {fiyat_usd}</p>
                     <hr style="margin:8px 0;">
-                    <small>Hedef Kar: {row['Hedef Kar']} ₺</small><br>
-                    <small>Kargo: {kargo_maliyeti} ₺</small>
+                    <small>Hedef Kar: {row['Hedef Kar']} ₺</small>
                 </div>
                 """, unsafe_allow_html=True)
         
         if st.button("🗑️ Portföyü Temizle"):
             st.session_state.urunler = []
-            if os.path.exists(DB_FILE): os.remove(DB_FILE)
+            if os.path.exists("urun_veritabani.csv"): os.remove("urun_veritabani.csv")
             st.rerun()
     else:
-        st.info("Ürün eklemediniz.")
+        st.info("Ürün bulunamadı.")
