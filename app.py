@@ -54,17 +54,17 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR (GÜNCELLENMİŞ KISIM) ---
+# --- SIDEBAR (DÜZELTİLMİŞ VE NETLEŞTİRİLMİŞ KISIM) ---
 with st.sidebar:
     st.title("⚙️ Global Ayarlar")
-    st.success(f"🕒 **Piyasa Verisi Güncel**\nSon Kontrol: {son_guncelleme}")
     
-    # Dolar Kurunu Kilitli Hale Getirdik
-    st.text_input("💵 Canlı Dolar Kuru (Otomatik)", value=f"{dolar_kuru:.2f} ₺", disabled=True)
-    kur = float(dolar_kuru) # Hesaplamalar için bu sabit değeri kullanmaya devam eder
+    # Bilgi Paneli: Daha net ve canlı görünüm için metric kullandık
+    st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
+    st.metric(label="💵 Canlı Dolar Kuru", value=f"{dolar_kuru:.2f} ₺")
+    kur = float(dolar_kuru) 
     
     st.divider()
-    # Diğer ayarlar senin müdahale edebilmen için açık kalmaya devam ediyor
+    # Düzenlenebilir Ayarlar
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.5, format="%.2f")
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim_oran = st.number_input("🏷️ Etsy İndirim (%)", value=10.0)
@@ -132,7 +132,7 @@ with tab1:
                 iscilik_maliyet = m_gram * gr_iscilik * kur
                 toplam_maliyet = maden_maliyet + iscilik_maliyet + kargo
                 
-                # Etsy Satış Fiyatı (Masraflar bindirilmiş hali)
+                # Etsy Satış Fiyatı
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
