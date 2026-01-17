@@ -54,12 +54,17 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (GÜNCELLENMİŞ KISIM) ---
 with st.sidebar:
     st.title("⚙️ Global Ayarlar")
     st.success(f"🕒 **Piyasa Verisi Güncel**\nSon Kontrol: {son_guncelleme}")
     
-    kur = st.number_input("💵 Dolar Kuru", value=float(dolar_kuru), format="%.2f")
+    # Dolar Kurunu Kilitli Hale Getirdik
+    st.text_input("💵 Canlı Dolar Kuru (Otomatik)", value=f"{dolar_kuru:.2f} ₺", disabled=True)
+    kur = float(dolar_kuru) # Hesaplamalar için bu sabit değeri kullanmaya devam eder
+    
+    st.divider()
+    # Diğer ayarlar senin müdahale edebilmen için açık kalmaya devam ediyor
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.5, format="%.2f")
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim_oran = st.number_input("🏷️ Etsy İndirim (%)", value=10.0)
