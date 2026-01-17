@@ -33,8 +33,8 @@ def image_to_base64(image_file):
         except: return ""
     return ""
 
-# --- PİYASA VERİLERİ (ANLIK GÜNCELLEME DESTEKLİ) ---
-@st.cache_data(ttl=120)  # 2 dakikada bir veriyi yeniler
+# --- PİYASA VERİLERİ ---
+@st.cache_data(ttl=120)
 def piyasa_verileri():
     try:
         dolar = yf.Ticker("USDTRY=X").history(period="1d")['Close'].iloc[-1]
@@ -54,9 +54,8 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR (LOGO VE GLOBAL AYARLAR) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    # 1. LOGO EKLEME
     try:
         logo_img = Image.open("logo.png")
         st.image(logo_img, use_container_width=True)
@@ -64,15 +63,11 @@ with st.sidebar:
         st.title("💎 CRIPP Jewelry")
     
     st.divider()
-    
-    # 2. CANLI VERİ PANELİ (NET GÖRÜNÜM)
     st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
     st.metric(label="💵 Canlı Dolar Kuru", value=f"{dolar_kuru:.2f} ₺")
     kur = float(dolar_kuru) 
     
     st.divider()
-    
-    # Düzenlenebilir Ayarlar
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.5, format="%.2f")
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim_oran = st.number_input("🏷️ Etsy İndirim (%)", value=10.0)
@@ -83,7 +78,6 @@ with st.sidebar:
 
 # --- ANA EKRAN ---
 st.title("💎 Etsy Akıllı Fiyat & Stok Paneli")
-
 tab1, tab2 = st.tabs(["📊 Ürün Yönetimi", "➕ Yeni Ürün Ekle"])
 
 with tab2:
@@ -124,6 +118,9 @@ with tab1:
         if view_mode == "🎨 Kartlar":
             cols = st.columns(4)
             for idx, row in filtered_df.reset_index().iterrows():
+                # Google Sheets satır numarası (index 0'dan başlar, başlık satırı +1, liste +1 = +2)
+                actual_row_idx = int(row['index']) + 2 
+                
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_kat = row.get('Kategori', 'Genel')
@@ -133,15 +130,14 @@ with tab1:
                 except: m_hedef = 0.0
                 m_img = row.get('GörselData', '')
 
+                # Hesaplamalar
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maden_maliyet = (ons / 31.1035) * m_gram * kur
                 iscilik_maliyet = m_gram * gr_iscilik * kur
                 toplam_maliyet = maden_maliyet + iscilik_maliyet + kargo
-                
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
-                    # Logonun koyu yeşil tonunu (#00332B) kategori etiketine de uyguladım
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
                         <div style="font-size:10px; color:white; background:#00332B; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
@@ -149,14 +145,39 @@ with tab1:
                         <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
                         <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
                         <div style="display:flex; justify-content:space-around; margin-top:5px; border-top:1px solid #f1f1f1; padding-top:5px;">
+                            <span style="font-size:11px; color:#636e72;"><b>Gr:</b> {m_gram}</span>
                             <span style="font-size:11px; color:#636e72;"><b>Net:</b> {round(m_hedef,0)}₺</span>
-                            <span style="font-size:11px; color:#636e72;"><b>Dolar:</b> ${round(satis_fiyati/kur,2)}</span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button(f"🗑️ Kaldır", key=f"btn_{row['index']}"):
-                        sheet.delete_rows(int(row['index']) + 2)
-                        st.rerun()
+                    
+                    # Düzenle ve Sil Butonları
+                    b_col1, b_col2 = st.columns(2)
+                    with b_col1:
+                        if st.button(f"✏️ Düzenle", key=f"edit_btn_{actual_row_idx}"):
+                            st.session_state[f"edit_mode_{actual_row_idx}"] = True
+                    with b_col2:
+                        if st.button(f"🗑️ Kaldır", key=f"del_{actual_row_idx}"):
+                            sheet.delete_rows(actual_row_idx)
+                            st.rerun()
+
+                    # Düzenleme Formu
+                    if st.session_state.get(f"edit_mode_{actual_row_idx}", False):
+                        with st.form(key=f"edit_form_{actual_row_idx}"):
+                            st.write(f"✏️ {m_ad} Güncelle")
+                            new_gr = st.text_input("Gramaj", value=str(m_gram))
+                            new_kar = st.number_input("Hedef Kar", value=float(m_hedef))
+                            
+                            f_col1, f_col2 = st.columns(2)
+                            if f_col1.form_submit_button("✅ Kaydet"):
+                                sheet.update_cell(actual_row_idx, 3, new_gr.replace(',', '.'))
+                                sheet.update_cell(actual_row_idx, 4, new_kar)
+                                st.session_state[f"edit_mode_{actual_row_idx}"] = False
+                                st.success("Güncellendi!")
+                                st.rerun()
+                            if f_col2.form_submit_button("❌ İptal"):
+                                st.session_state[f"edit_mode_{actual_row_idx}"] = False
+                                st.rerun()
         else:
             st.dataframe(filtered_df, use_container_width=True)
     else:
