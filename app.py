@@ -20,7 +20,7 @@ def get_gsheet_client():
     except Exception as e:
         return None
 
-# --- GÖRSEL İŞLEME (EKSTRA SIKIŞTIRILMIŞ) ---
+# --- GÖRSEL İŞLEME ---
 def image_to_base64(image_file):
     if image_file is not None:
         try:
@@ -42,7 +42,6 @@ def piyasa_verileri():
         return dolar, altin, gumus
     except: return 43.0, 2650.0, 31.0
 
-# --- VERİLERİ HAZIRLA ---
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 sheet = get_gsheet_client()
 
@@ -52,7 +51,7 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR (AYARLAR) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Ayarlar")
     kur = st.number_input("💵 Dolar Kuru", value=float(dolar_kuru), format="%.2f")
@@ -60,8 +59,6 @@ with st.sidebar:
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
     indirim = st.number_input("🏷️ İndirim (%)", value=10.0)
     komisyon = 0.17
-    
-    st.divider()
     view_mode = st.radio("Görünüm Seçimi", ["🎨 Kart Görünümü", "📋 Liste Görünümü"])
 
 # --- ANA EKRAN ---
@@ -72,14 +69,15 @@ with tab2:
     with st.form("ekle_form", clear_on_submit=True):
         u_ad = st.text_input("Ürün Adı")
         u_maden = st.selectbox("Maden", ["Gümüş", "Altın"])
-        u_gr = st.number_input("Gram (3.5 gibi nokta kullanın)", value=0.0, step=0.01, format="%.2f")
+        # Gramaj hatası için nokta formatı zorunlu hale getirildi
+        u_gr = st.number_input("Gram (Örn: 3.5)", value=0.0, step=0.01, format="%.2f")
         u_kar = st.number_input("Hedef Kar (TL)", value=2000.0)
         u_img = st.file_uploader("Ürün Görseli")
         if st.form_submit_button("Kaydet ve Gönder"):
             if u_ad and sheet:
                 img_b64 = image_to_base64(u_img)
                 sheet.append_row([u_ad, u_maden, u_gr, u_kar, img_b64])
-                st.success(f"{u_ad} başarıyla eklendi!")
+                st.success("Ürün eklendi!")
                 st.rerun()
 
 with tab1:
@@ -89,19 +87,16 @@ with tab1:
             for idx, row in df.iterrows():
                 m_ad = row.get('Ürün', '-')
                 m_tur = row.get('Maden', 'Gümüş')
-                # Veri çekme sırasında oluşabilecek hatalara karşı kontrol
+                # Sayısal veri dönüşüm garantisi
                 try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
                 except: m_gram = 0.0
                 try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
                 except: m_hedef = 0.0
                 m_img = row.get('GörselData', '')
-
+                
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maliyet = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
                 fiyat = (maliyet + m_hedef) / (1 - (komisyon + indirim/100))
-                
                 img_src = f"data:image/jpeg;base64,{m_img}" if m_img else ""
                 
                 with cols[idx % 4]:
-                    st.markdown(f"""
-                    <div style="background-color:white; padding:15px; border-radius:1
