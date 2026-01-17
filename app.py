@@ -17,8 +17,7 @@ def get_gsheet_client():
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
-    except:
-        return None
+    except: return None
 
 # --- GÖRSEL İŞLEME ---
 def image_to_base64(image_file):
@@ -26,9 +25,9 @@ def image_to_base64(image_file):
         try:
             img = Image.open(image_file)
             if img.mode != "RGB": img = img.convert("RGB")
-            img.thumbnail((100, 100)) 
+            img.thumbnail((120, 120)) 
             buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=40, optimize=True)
+            img.save(buffered, format="JPEG", quality=50, optimize=True)
             return base64.b64encode(buffered.getvalue()).decode('utf-8')
         except: return ""
     return ""
@@ -40,16 +39,14 @@ def piyasa_verileri():
         altin = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
         gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
         return dolar, altin, gumus
-    except: return 43.0, 2650.0, 31.0
+    except: return 43.27, 2650.0, 31.0
 
 dolar_kuru, ons_altin, ons_gumus = piyasa_verileri()
 sheet = get_gsheet_client()
 
 if sheet:
-    try:
-        data = sheet.get_all_records()
-        df = pd.DataFrame(data)
-    except: df = pd.DataFrame()
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
 else:
     df = pd.DataFrame()
 
@@ -74,56 +71,53 @@ with tab2:
         u_gr = st.text_input("Gram (Örn: 3.5)", value="0.0")
         u_kar = st.number_input("Hedef Kar (TL)", value=2000.0)
         u_img = st.file_uploader("Ürün Görseli", type=["jpg", "jpeg", "png"])
-        if st.form_submit_button("Kaydet ve Gönder"):
+        if st.form_submit_button("Excel'e Kaydet"):
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
-                img_b64 = image_to_base64(u_img)
-                sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_b64])
-                st.success("Ürün başarıyla eklendi!")
+                img_data = image_to_base64(u_img)
+                sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data])
+                st.success("Ürün Excel'e kaydedildi!")
                 st.rerun()
 
 with tab1:
     if not df.empty:
-        if view_mode == "🎨 Kart Görünümü":
-            cols = st.columns(4)
-            for idx, row in df.iterrows():
-                m_ad = str(row.get('Ürün', '-'))
-                m_tur = str(row.get('Maden', 'Gümüş'))
-                
-                # Gramaj ve Kar Hesaplama
-                try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
-                except: m_gram = 0.0
-                try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
-                except: m_hedef = 0.0
-                
-                # Görsel Çekme (Düzeltilen Kısım)
-                m_img = str(row.get('GörselData', ''))
-                
-                ons = ons_altin if m_tur == "Altın" else ons_gumus
-                maliyet = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
-                fiyat = (maliyet + m_hedef) / (1 - (komisyon + indirim/100))
-                
-                # Görsel HTML yapısı (Garantiye almak için base64 kontrolü)
-                img_html = ""
-                if m_img and len(m_img) > 100:
-                    img_html = f'<img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:120px; object-fit:contain; border-radius:5px;">'
-                else:
-                    img_html = '<div style="width:100%; height:120px; background:#f0f0f0; display:flex; align-items:center; justify-content:center; border-radius:5px; color:#ccc;">Görsel Yok</div>'
-
-                with cols[idx % 4]:
-                    st.markdown(f"""
-                    <div style="background-color:white; padding:15px; border-radius:12px; border:1px solid #eee; text-align:center; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
-                        {img_html}
-                        <p style="font-weight:bold; margin-top:10px; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
-                        <h3 style="color:#861211; margin:0;">{round(fiyat, 2)} ₺</h3>
-                        <p style="color:gray; font-size:12px; margin-bottom:10px;">{m_gram} gr</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+        # --- ARAMA KUTUSU ---
+        search_term = st.text_input("🔍 Ürün Adı ile Ara...", "").lower()
+        
+        # Filtreleme işlemi
+        filtered_df = df[df['Ürün'].astype(str).str.lower().str.contains(search_term)]
+        
+        if not filtered_df.empty:
+            if view_mode == "🎨 Kart Görünümü":
+                cols = st.columns(4)
+                for idx, row in filtered_df.reset_index().iterrows():
+                    m_ad = row.get('Ürün', 'İsimsiz Ürün')
+                    m_tur = row.get('Maden', 'Gümüş')
+                    try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
+                    except: m_gram = 0.0
+                    try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
+                    except: m_hedef = 0.0
+                    m_img = row.get('GörselData', '')
                     
-                    if st.button("🗑️ Sil", key=f"del_{idx}"):
-                        sheet.delete_rows(idx + 2)
-                        st.rerun()
+                    ons = ons_altin if m_tur == "Altın" else ons_gumus
+                    maliyet = ((ons/31.1035) * m_gram * kur) + (m_gram * gr_iscilik * kur) + kargo
+                    fiyat = (maliyet + m_hedef) / (1 - (komisyon + indirim/100))
+                    
+                    with cols[idx % 4]:
+                        st.markdown(f"""
+                        <div style="background-color:white; padding:15px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:130px; object-fit:contain; border-radius:10px; background-color:#f8f9fa;" onerror="this.src='https://via.placeholder.com/150?text=Gorsel+Yok';">
+                            <p style="font-weight:bold; margin-top:10px; color:#333; height:40px; overflow:hidden;">{m_ad}</p>
+                            <h3 style="color:#861211; margin:0;">{round(fiyat, 2)} ₺</h3>
+                            <p style="color:#666; font-size:12px;">{m_gram} gr / $ {round(fiyat/kur, 2)}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        if st.button(f"🗑️ Sil", key=f"del_{row['index']}"):
+                            sheet.delete_rows(int(row['index']) + 2)
+                            st.rerun()
+            else:
+                st.dataframe(filtered_df, use_container_width=True)
         else:
-            st.dataframe(df[['Ürün', 'Maden', 'Gr', 'Hedef Kar']], use_container_width=True)
+            st.warning("Aradığınız kriterlere uygun ürün bulunamadı.")
     else:
         st.info("Henüz ürün bulunmuyor.")
