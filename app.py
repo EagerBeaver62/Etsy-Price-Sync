@@ -27,11 +27,14 @@ def image_to_base64(image_file):
     if image_file is not None:
         try:
             img = Image.open(image_file)
-            img.thumbnail((300, 300))
+            # Boyutu 300x300 yerine 150x150 yapalım (Hücreye sığması için)
+            img.thumbnail((150, 150)) 
             buffered = BytesIO()
-            img.save(buffered, format="PNG")
+            # Kaliteyi (quality) %50'ye düşürerek veriyi hafifletelim
+            img.save(buffered, format="JPEG", quality=50) 
             return base64.b64encode(buffered.getvalue()).decode()
-        except:
+        except Exception as e:
+            st.error(f"Görsel dönüştürme hatası: {e}")
             return ""
     return ""
 
