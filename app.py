@@ -9,7 +9,7 @@ from PIL import Image
 import datetime
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Etsy Profesyonel Dashboard", layout="wide", page_icon="💎")
+st.set_page_config(page_title="CRIPP Jewelry Dashboard", layout="wide", page_icon="💎")
 
 # --- GOOGLE SHEETS BAĞLANTISI ---
 def get_gsheet_client():
@@ -54,16 +54,24 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR (DÜZELTİLMİŞ VE NETLEŞTİRİLMİŞ KISIM) ---
+# --- SIDEBAR (LOGO VE GLOBAL AYARLAR) ---
 with st.sidebar:
-    st.title("⚙️ Global Ayarlar")
+    # 1. LOGO EKLEME
+    try:
+        logo_img = Image.open("logo.png")
+        st.image(logo_img, use_container_width=True)
+    except:
+        st.title("💎 CRIPP Jewelry")
     
-    # Bilgi Paneli: Daha net ve canlı görünüm için metric kullandık
+    st.divider()
+    
+    # 2. CANLI VERİ PANELİ (NET GÖRÜNÜM)
     st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
     st.metric(label="💵 Canlı Dolar Kuru", value=f"{dolar_kuru:.2f} ₺")
     kur = float(dolar_kuru) 
     
     st.divider()
+    
     # Düzenlenebilir Ayarlar
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.5, format="%.2f")
     kargo = st.number_input("🚚 Kargo (TL)", value=450.0)
@@ -71,7 +79,7 @@ with st.sidebar:
     etsy_komisyon = 0.17 
     
     st.divider()
-    view_mode = st.radio("Görünüm", ["🎨 Kartlar", "📋 Liste"])
+    view_mode = st.radio("Görünüm Seçimi", ["🎨 Kartlar", "📋 Liste"])
 
 # --- ANA EKRAN ---
 st.title("💎 Etsy Akıllı Fiyat & Stok Paneli")
@@ -107,7 +115,6 @@ with tab1:
             kat_liste = ["Hepsi"] + list(df['Kategori'].unique()) if 'Kategori' in df.columns else ["Hepsi"]
             kat_filtre = st.selectbox("📁 Kategori", kat_liste)
 
-        # Filtreleme
         mask = df['Ürün'].astype(str).str.lower().str.contains(search)
         if kat_filtre != "Hepsi":
             mask = mask & (df['Kategori'] == kat_filtre)
@@ -126,19 +133,18 @@ with tab1:
                 except: m_hedef = 0.0
                 m_img = row.get('GörselData', '')
 
-                # HESAPLAMA MOTORU
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maden_maliyet = (ons / 31.1035) * m_gram * kur
                 iscilik_maliyet = m_gram * gr_iscilik * kur
                 toplam_maliyet = maden_maliyet + iscilik_maliyet + kargo
                 
-                # Etsy Satış Fiyatı
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
+                    # Logonun koyu yeşil tonunu (#00332B) kategori etiketine de uyguladım
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                        <div style="font-size:10px; color:white; background:#5758BB; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <div style="font-size:10px; color:white; background:#00332B; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
                         <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px; background:#fcfcfc;">
                         <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
                         <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
