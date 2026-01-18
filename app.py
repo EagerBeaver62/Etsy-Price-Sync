@@ -18,7 +18,8 @@ def get_gsheet_client():
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
-    except: return None
+    except Exception as e:
+        return None
 
 # --- GÖRSEL İŞLEME ---
 def image_to_base64(image_file):
@@ -49,15 +50,18 @@ dolar_kuru, ons_altin, ons_gumus, son_guncelleme = piyasa_verileri()
 sheet = get_gsheet_client()
 
 if sheet:
-    data = sheet.get_all_records()
-    df = pd.DataFrame(data)
+    try:
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+    except:
+        df = pd.DataFrame()
 else:
     df = pd.DataFrame()
 
 # --- SIDEBAR ---
 with st.sidebar:
     try:
-        logo_img = Image.open("logo.png")
+        logo_img = Image.open("Adsız tasarım (22).png")
         st.image(logo_img, use_container_width=True)
     except:
         st.title("💎 CRIPP Jewelry")
@@ -89,9 +93,9 @@ with tab2:
             u_maden = st.selectbox("Maden", ["Gümüş", "Altın"])
             u_gr = st.text_input("Gramaj (Örn: 3.5)", value="0.0")
         with col2:
-            u_kaplama_tl = st.number_input("Kaplama Maliyeti (TL)", value=0.0)
-            u_lazer_tl = st.number_input("Lazer Maliyeti (TL)", value=0.0)
-            u_zincir_tl = st.number_input("Zincir Maliyeti (TL)", value=0.0)
+            u_kap = st.number_input("Kaplama (TL)", value=0.0)
+            u_laz = st.number_input("Lazer (TL)", value=0.0)
+            u_zin = st.number_input("Zincir (TL)", value=0.0)
             u_kar = st.number_input("Hedef Net Kar (TL)", value=2500.0)
             u_img = st.file_uploader("Görsel Yükle", type=["jpg", "png"])
             
@@ -99,8 +103,7 @@ with tab2:
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
                 img_data = image_to_base64(u_img)
-                # Sütun Sırası: A:Ürün, B:Maden, C:Gr, D:Kar, E:Görsel, F:Kategori, G:Kaplama, H:Lazer, I:Zincir
-                sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat, u_kaplama_tl, u_lazer_tl, u_zincir_tl])
+                sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat, u_kap, u_laz, u_zin])
                 st.success(f"{u_ad} başarıyla eklendi!")
                 st.rerun()
 
@@ -126,27 +129,54 @@ with tab1:
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_kat = row.get('Kategori', 'Genel')
-                try: m_gram = float(str(row.get('Gr', 0)).replace(',', '.'))
-                except: m_gram = 0.0
-                try: m_hedef = float(str(row.get('Hedef Kar', 0)).replace(',', '.'))
-                except: m_hedef = 0.0
+                m_gram = float(str(row.get('Gr', 0)).replace(',', '.')) if row.get('Gr') else 0.0
+                m_hedef = float(row.get('Hedef Kar', 0)) if row.get('Hedef Kar') else 0.0
                 m_img = row.get('GörselData', '')
-                
-                # Ek Maliyetleri Çek
-                m_kaplama_tl = float(row.get('KaplamaTL', 0)) if 'KaplamaTL' in row else 0.0
-                m_lazer_tl = float(row.get('LazerTL', 0)) if 'LazerTL' in row else 0.0
-                m_zincir_tl = float(row.get('ZincirTL', 0)) if 'ZincirTL' in row else 0.0
+                m_kap = float(row.get('KaplamaTL', 0)) if row.get('KaplamaTL') else 0.0
+                m_laz = float(row.get('LazerTL', 0)) if row.get('LazerTL') else 0.0
+                m_zin = float(row.get('ZincirTL', 0)) if row.get('ZincirTL') else 0.0
 
-                # --- HESAPLAMA MOTORU ---
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
-                maden_maliyet_tl = (ons / 31.1035) * m_gram * kur
-                iscilik_maliyet_tl = m_gram * gr_iscilik * kur
-                
-                # Toplam Maliyet: Maden + İşçilik + Kaplama + Lazer + Zincir + Kargo
-                toplam_maliyet = maden_maliyet_tl + iscilik_maliyet_tl + m_kaplama_tl + m_lazer_tl + m_zincir_tl + kargo
+                maden_tl = (ons / 31.1035) * m_gram * kur
+                iscilik_tl = m_gram * gr_iscilik * kur
+                toplam_maliyet = maden_tl + iscilik_tl + m_kap + m_laz + m_zin + kargo
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                        <div style="font-size:10px
+                        <div style="font-size:10px; color:white; background:#00332B; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px;">
+                        <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
+                        <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
+                        <p style="font-size:10px; color:#636e72;">Gr: {m_gram} | Kar: {m_hedef}₺</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        if st.button("✏️", key=f"e_{actual_row_idx}"):
+                            st.session_state[f"edit_{actual_row_idx}"] = True
+                    with b2:
+                        if st.button("🗑️", key=f"d_{actual_row_idx}"):
+                            sheet.delete_rows(actual_row_idx)
+                            st.rerun()
+
+                    if st.session_state.get(f"edit_{actual_row_idx}", False):
+                        with st.form(key=f"f_{actual_row_idx}"):
+                            e_name = st.text_input("İsim", value=m_ad)
+                            e_gr = st.text_input("Gramaj", value=str(m_gram))
+                            e_kar = st.number_input("Hedef Kar", value=float(m_hedef))
+                            e_kap = st.number_input("Kaplama TL", value=m_kap)
+                            e_laz = st.number_input("Lazer TL", value=m_laz)
+                            e_zin = st.number_input("Zincir TL", value=m_zin)
+                            if st.form_submit_button("Kaydet"):
+                                vals = [e_name, m_tur, e_gr.replace(',','.'), e_kar, m_img, m_kat, e_kap, e_laz, e_zin]
+                                for i, val in enumerate(vals, 1):
+                                    sheet.update_cell(actual_row_idx, i, val)
+                                st.session_state[f"edit_{actual_row_idx}"] = False
+                                st.rerun()
+        else:
+            st.dataframe(filtered_df, use_container_width=True)
+    else:
+        st.info("Veri bulunamadı. Lütfen yeni ürün ekleyin.")
