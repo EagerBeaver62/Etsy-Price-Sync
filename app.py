@@ -103,22 +103,36 @@ with tab2:
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
                 img_data = image_to_base64(u_img)
+                # Sıralama: Ürün, Maden, Gr, Kar, Görsel, Kategori, Kaplama, Lazer, Zincir
                 sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat, u_kap, u_laz, u_zin])
                 st.success(f"{u_ad} başarıyla eklendi!")
                 st.rerun()
 
 with tab1:
     if not df.empty:
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            search = st.text_input("🔍 İsimle ara...", "").lower()
-        with c2:
-            kat_liste = ["Hepsi"] + list(df['Kategori'].unique()) if 'Kategori' in df.columns else ["Hepsi"]
-            kat_filtre = st.selectbox("📁 Kategori", kat_liste)
+        # --- BUTON ŞEKLİNDE KATEGORİ FİLTRESİ ---
+        st.write("### 📁 Kategoriler")
+        mevcut_kategoriler = ["Hepsi"] + sorted(list(df['Kategori'].unique()))
+        
+        # Session state ile seçili kategoriyi tutalım
+        if 'selected_kat' not in st.session_state:
+            st.session_state.selected_kat = "Hepsi"
 
+        kat_cols = st.columns(len(mevcut_kategoriler))
+        for i, kat in enumerate(mevcut_kategoriler):
+            # Seçili butonu farklı renkte gösterelim
+            btn_type = "primary" if st.session_state.selected_kat == kat else "secondary"
+            if kat_cols[i].button(kat, key=f"kat_btn_{kat}", use_container_width=True, type=btn_type):
+                st.session_state.selected_kat = kat
+                st.rerun()
+        
+        st.divider()
+        search = st.text_input("🔍 İsimle ara...", "").lower()
+
+        # Filtreleme Uygula
         mask = df['Ürün'].astype(str).str.lower().str.contains(search)
-        if kat_filtre != "Hepsi":
-            mask = mask & (df['Kategori'] == kat_filtre)
+        if st.session_state.selected_kat != "Hepsi":
+            mask = mask & (df['Kategori'] == st.session_state.selected_kat)
         
         filtered_df = df[mask]
 
@@ -136,6 +150,7 @@ with tab1:
                 m_laz = float(row.get('LazerTL', 0)) if row.get('LazerTL') else 0.0
                 m_zin = float(row.get('ZincirTL', 0)) if row.get('ZincirTL') else 0.0
 
+                # --- HESAPLAMA ---
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maden_tl = (ons / 31.1035) * m_gram * kur
                 iscilik_tl = m_gram * gr_iscilik * kur
@@ -143,9 +158,12 @@ with tab1:
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
+                    # Kategoriye göre badge rengi
+                    kat_color = "#00332B" if m_kat == "Kolye" else "#1e3a8a" if m_kat == "Yüzük" else "#5b21b6"
+                    
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                        <div style="font-size:10px; color:white; background:#00332B; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <div style="font-size:10px; color:white; background:{kat_color}; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
                         <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px;">
                         <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
                         <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
@@ -179,4 +197,4 @@ with tab1:
         else:
             st.dataframe(filtered_df, use_container_width=True)
     else:
-        st.info("Veri bulunamadı. Lütfen yeni ürün ekleyin.")
+        st.info("Veri bulunamadı. Lütfen ürün ekleyin.")
