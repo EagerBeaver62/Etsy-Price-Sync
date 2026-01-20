@@ -1,6 +1,7 @@
 streamlit
 pandas
 yfinance
-Pillow
 gspread
 google-auth
+Pillow
+plotly
