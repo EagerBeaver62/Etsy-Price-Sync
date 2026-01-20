@@ -14,12 +14,6 @@ except ImportError:
     st.error("Lütfen requirements.txt dosyasına 'yfinance' ekleyin.")
     st.stop()
 
-try:
-    import plotly.graph_objects as go
-    PLOTLY_AVAILABLE = True
-except ImportError:
-    PLOTLY_AVAILABLE = False
-
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="CRIPP Jewelry", layout="wide", page_icon="💎")
 
@@ -42,23 +36,7 @@ def image_to_base64(image_file):
         except: return ""
     return ""
 
-def create_mini_chart(ticker, color):
-    if not PLOTLY_AVAILABLE: return None
-    try:
-        data = yf.download(ticker, period="1mo", interval="1d", progress=False)
-        if data.empty: return None
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], mode='lines', line=dict(color=color, width=2)))
-        fig.update_layout(
-            height=60, margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(visible=False), yaxis=dict(visible=False),
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            showlegend=False
-        )
-        return fig
-    except: return None
-
-# --- VERİ ÇEKME ---
+# --- CANLI PİYASA VERİSİ (SADECE RAKAM) ---
 @st.cache_data(ttl=60)
 def get_market_data():
     try:
@@ -67,10 +45,11 @@ def get_market_data():
         g = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
         return float(d), float(a), float(g), datetime.datetime.now().strftime("%H:%M")
     except:
-        return 43.27, 2650.0, 31.0, "Yükleniyor..."
+        return 43.27, 2650.0, 31.0, "Yenileniyor..."
 
 dolar, altin_ons, gumus_ons, saat = get_market_data()
 
+# --- GOOGLE SHEETS ---
 def get_sheet():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -82,28 +61,21 @@ def get_sheet():
 
 df, sheet = get_sheet()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (Grafiksiz Sade Panel) ---
 with st.sidebar:
     st.title("💎 CRIPP Jewelry")
     st.caption(f"Son Güncelleme: {saat}")
     
     st.divider()
     st.metric("💵 Dolar/TL", f"{dolar:.2f} ₺")
-    fig_d = create_mini_chart("USDTRY=X", "#2ecc71")
-    if fig_d: st.plotly_chart(fig_d, use_container_width=True, config={'displayModeBar': False})
-    
     st.metric("🥇 Altın Ons", f"${altin_ons:.0f}")
-    fig_a = create_mini_chart("GC=F", "#f1c40f")
-    if fig_a: st.plotly_chart(fig_a, use_container_width=True, config={'displayModeBar': False})
-
     st.metric("🥈 Gümüş Ons", f"${gumus_ons:.2f}")
-    fig_g = create_mini_chart("SI=F", "#95a5a6")
-    if fig_g: st.plotly_chart(fig_g, use_container_width=True, config={'displayModeBar': False})
 
     st.divider()
     has_altin = (altin_ons / 31.1035) * dolar
     has_gumus = (gumus_ons / 31.1035) * dolar
-    st.info(f"**Altın:** {has_altin:.2f} ₺ | **Gümüş:** {has_gumus:.2f} ₺")
+    st.success(f"**Has Altın:** {has_altin:.2f} ₺")
+    st.info(f"**Has Gümüş:** {has_gumus:.2f} ₺")
     
     st.divider()
     iscilik = st.number_input("İşçilik ($/gr)", value=1.50)
@@ -130,13 +102,16 @@ with t1:
             for idx, row in f_df.reset_index().iterrows():
                 row_idx = int(row.get('index')) + 2
                 
-                # Maliyet Hesabı
+                # Değişkenler
                 m_gr = safe_float(row.get('Gr', 0))
                 m_kar = safe_float(row.get('Hedef Kar', 0))
+                m_kap = safe_float(row.get('KaplamaTL', 0))
+                m_laz = safe_float(row.get('LazerTL', 0))
                 m_maden = row.get('Maden', 'Gümüş')
-                ons = altin_ons if m_maden == "Altın" else gumus_ons
                 
-                maliyet = ((ons/31.1035)*m_gr*dolar) + (m_gr*iscilik*dolar) + safe_float(row.get('KaplamaTL',0)) + kargo
+                # Fiyat Hesaplama
+                ons = altin_ons if m_maden == "Altın" else gumus_ons
+                maliyet = ((ons/31.1035)*m_gr*dolar) + (m_gr*iscilik*dolar) + m_kap + m_laz + kargo
                 fiyat = (maliyet + m_kar) / (1 - (0.17 + indirim/100))
                 
                 with cols[idx % 4]:
@@ -146,11 +121,10 @@ with t1:
                         <img src="data:image/jpeg;base64,{img}" style="height:120px; object-fit:contain;">
                         <p style="font-weight:bold; margin:5px 0; font-size:13px; height:35px; overflow:hidden;">{row.get('Ürün')}</p>
                         <h3 style="color:#d63031; margin:0;">{fiyat:,.0f} ₺</h3>
-                        <p style="font-size:10px; color:gray;">{m_gr}g | {m_kar}₺ Kar</p>
+                        <p style="font-size:10px; color:gray;">{m_gr}g | Kap: {m_kap}₺ | Laz: {m_laz}₺</p>
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Düzenleme ve Silme Butonları
                     b1, b2 = st.columns(2)
                     if b1.button("✏️", key=f"edit_{idx}"):
                         st.session_state[f"form_{idx}"] = not st.session_state.get(f"form_{idx}", False)
@@ -160,13 +134,18 @@ with t1:
                     
                     if st.session_state.get(f"form_{idx}"):
                         with st.form(f"f_{idx}"):
-                            new_name = st.text_input("Ad", value=row.get('Ürün'))
-                            new_gr = st.text_input("Gram", value=str(m_gr))
-                            new_kar = st.number_input("Kar", value=float(m_kar))
+                            n_name = st.text_input("Ad", value=row.get('Ürün'))
+                            n_gr = st.text_input("Gram", value=str(m_gr))
+                            n_kap = st.number_input("Kaplama (TL)", value=float(m_kap))
+                            n_laz = st.number_input("Lazer (TL)", value=float(m_laz))
+                            n_kar = st.number_input("Hedef Kar", value=float(m_kar))
                             if st.form_submit_button("Güncelle"):
-                                sheet.update_cell(row_idx, 1, new_name)
-                                sheet.update_cell(row_idx, 3, new_gr.replace(',','.'))
-                                sheet.update_cell(row_idx, 4, new_kar)
+                                # Sütun sıralamasına göre update (1: Ad, 3: Gr, 4: Kar, 7: Kaplama, 8: Lazer)
+                                sheet.update_cell(row_idx, 1, n_name)
+                                sheet.update_cell(row_idx, 3, n_gr.replace(',','.'))
+                                sheet.update_cell(row_idx, 4, n_kar)
+                                sheet.update_cell(row_idx, 7, n_kap)
+                                sheet.update_cell(row_idx, 8, n_laz)
                                 st.session_state[f"form_{idx}"] = False
                                 st.rerun()
         else:
@@ -179,13 +158,16 @@ with t2:
             u_ad = st.text_input("Ürün Adı")
             u_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Küpe", "Bileklik"])
             u_maden = st.selectbox("Maden", ["Gümüş", "Altın"])
-        with c2:
             u_gr = st.text_input("Gram", value="0.0")
-            u_kar = st.number_input("Hedef Kar", value=2000.0)
+        with c2:
+            u_kap = st.number_input("Kaplama Maliyeti (TL)", value=0.0)
+            u_laz = st.number_input("Lazer Maliyeti (TL)", value=0.0)
+            u_kar = st.number_input("Hedef Kar (TL)", value=2500.0)
             u_img = st.file_uploader("Görsel", type=['jpg','png'])
         
         if st.form_submit_button("Kaydet"):
             img_str = image_to_base64(u_img)
-            sheet.append_row([u_ad, u_maden, u_gr.replace(',','.'), u_kar, img_str, u_kat, 0, 0, 0])
+            # Sıralama: Ürün, Maden, Gr, Kar, Görsel, Kategori, Kaplama, Lazer, Zincir
+            sheet.append_row([u_ad, u_maden, u_gr.replace(',','.'), u_kar, img_str, u_kat, u_kap, u_laz, 0])
             st.success("Başarıyla eklendi!")
             st.rerun()
