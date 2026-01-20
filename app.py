@@ -15,7 +15,6 @@ st.set_page_config(page_title="CRIPP Jewelry Dashboard", layout="wide", page_ico
 def safe_float(value):
     try:
         if value is None or value == "": return 0.0
-        # Virgülü noktaya çevir ve sayı olmayan her şeyi temizle
         return float(str(value).replace(',', '.').strip())
     except:
         return 0.0
@@ -42,17 +41,25 @@ def image_to_base64(image_file):
         except: return ""
     return ""
 
-# --- PİYASA VERİLERİ ---
+# --- PİYASA VERİLERİ (DETAYLANDIRILDI) ---
 @st.cache_data(ttl=60)
 def piyasa_verileri():
     try:
+        # Dolar Kuru
         dolar_ticker = yf.Ticker("USDTRY=X")
         dolar_df = dolar_ticker.history(period="1d", interval="1m")
         dolar = dolar_df['Close'].iloc[-1] if not dolar_df.empty else dolar_ticker.history(period="5d")['Close'].iloc[-1]
-        altin = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
-        gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
+        
+        # Altın Ons (Gold)
+        altin_ticker = yf.Ticker("GC=F")
+        altin_ons = altin_ticker.history(period="1d")['Close'].iloc[-1]
+        
+        # Gümüş Ons (Silver)
+        gumus_ticker = yf.Ticker("SI=F")
+        gumus_ons = gumus_ticker.history(period="1d")['Close'].iloc[-1]
+        
         saat = datetime.datetime.now().strftime("%H:%M:%S")
-        return float(dolar), float(altin), float(gumus), saat
+        return float(dolar), float(altin_ons), float(gumus_ons), saat
     except: 
         return 43.27, 2650.0, 31.0, f"Yenileniyor: {datetime.datetime.now().strftime('%H:%M:%S')}"
 
@@ -68,7 +75,7 @@ if sheet:
 else:
     df = pd.DataFrame()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (DETAYLI KUR BÖLÜMÜ) ---
 with st.sidebar:
     try:
         logo_img = Image.open("Adsız tasarım (22).png")
@@ -77,8 +84,26 @@ with st.sidebar:
         st.title("💎 CRIPP Jewelry")
     
     st.divider()
-    st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
-    st.metric(label="💵 Canlı Dolar Kuru", value=f"{dolar_kuru:.2f} ₺")
+    st.markdown(f"**🕒 Son Güncelleme:** `{son_guncelleme}`")
+    
+    # Detaylı Kur Bilgileri
+    st.markdown("### 📈 Canlı Piyasalar")
+    
+    # Dolar ve Ons Bilgileri
+    col_kur1, col_kur2 = st.columns(2)
+    col_kur1.metric("💵 USD/TRY", f"{dolar_kuru:.2f} ₺")
+    col_kur2.metric("🥈 Gümüş Ons", f"${ons_gumus:.2f}")
+    
+    col_kur3, col_kur4 = st.columns(2)
+    col_kur3.metric("🥇 Altın Ons", f"${ons_altin:.0f}")
+    
+    # Gram Hesaplamaları (Gümüş ve Altın için TL karşılığı)
+    st.markdown("---")
+    gr_altin_tl = (ons_altin / 31.1035) * dolar_kuru
+    gr_gumus_tl = (ons_gumus / 31.1035) * dolar_kuru
+    
+    st.write("⚖️ **Hesaplanan Gram Fiyatları (TL)**")
+    st.info(f"**Has Gümüş:** {gr_gumus_tl:.2f} ₺  \n**Has Altın:** {gr_altin_tl:.2f} ₺")
     
     st.divider()
     gr_iscilik = st.number_input("🛠️ Genel İşçilik ($/gr)", value=1.50)
@@ -112,7 +137,7 @@ with tab2:
             if u_ad and sheet:
                 img_data = image_to_base64(u_img)
                 sheet.append_row([u_ad, u_maden, u_gr.replace(',','.'), u_kar, img_data, u_kat, u_kap, u_laz, u_zin])
-                st.success("Kaydedildi!")
+                st.success("Ürün başarıyla kaydedildi!")
                 st.rerun()
 
 with tab1:
@@ -128,7 +153,7 @@ with tab1:
                 st.session_state.selected_kat = kat
                 st.rerun()
         
-        search = st.text_input("🔍 Ara...", "").lower()
+        search = st.text_input("🔍 İsimle ara...", "").lower()
         mask = df['Ürün'].astype(str).str.lower().str.contains(search)
         if st.session_state.selected_kat != "Hepsi": mask = mask & (df['Kategori'] == st.session_state.selected_kat)
         
@@ -139,7 +164,7 @@ with tab1:
             for idx, row in filtered_df.reset_index().iterrows():
                 actual_idx = int(row['index']) + 2 
                 
-                # VERİLERİ GÜVENLİ ÇEK (HATA VEREN KISIM DÜZELTİLDİ)
+                # Veri Çekme
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_gram = safe_float(row.get('Gr', 0))
@@ -149,7 +174,7 @@ with tab1:
                 m_zin = safe_float(row.get('ZincirTL', 0))
                 m_img = row.get('GörselData', '')
 
-                # HESAPLAMA
+                # HESAPLAMA MOTORU
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maden_tl = (ons / 31.1035) * m_gram * dolar_kuru
                 iscilik_tl = m_gram * gr_iscilik * dolar_kuru
@@ -158,7 +183,7 @@ with tab1:
                 
                 with cols[idx % 4]:
                     st.markdown(f"""
-                    <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px;">
+                    <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.05);">
                         <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px;">
                         <p style="font-weight:bold; margin-top:8px; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
                         <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
