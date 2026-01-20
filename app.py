@@ -10,10 +10,10 @@ import datetime
 try:
     import plotly.graph_objects as go
 except ImportError:
-    st.error("Lütfen GitHub'daki 'requirements.txt' dosyanıza 'plotly' ekleyip kaydedin.")
+    st.error("Lütfen GitHub'daki 'requirements.txt' dosyanıza 'plotly' ekleyin.")
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="CRIPP Jewelry Dashboard", layout="wide", page_icon="💎")
+st.set_page_config(page_title="CRIPP Jewelry", layout="wide", page_icon="💎")
 
 # --- GÜVENLİ SAYI DÖNÜŞTÜRÜCÜ ---
 def safe_float(value):
@@ -22,33 +22,21 @@ def safe_float(value):
         return float(str(value).replace(',', '.').strip())
     except: return 0.0
 
-# --- PİYASA VERİLERİ ---
+# --- PİYASA VERİLERİ (SOL PANEL İÇİN) ---
 @st.cache_data(ttl=300)
-def get_clean_data(ticker):
+def get_sidebar_chart(ticker, color):
     try:
-        data = yf.download(ticker, period="1mo", interval="1d", progress=False)
-        return data[['Close']]
-    except: return pd.DataFrame()
-
-def draw_simple_line_chart(df, title, color):
-    if df.empty: return None
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df.index, 
-        y=df['Close'], 
-        mode='lines', 
-        line=dict(color=color, width=3),
-        hovertemplate='%{y:.2f}' # Sadece değer görünür
-    ))
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=16)),
-        height=250,
-        margin=dict(l=20, r=20, t=50, b=20),
-        plot_bgcolor='rgba(0,0,0,0)', # Arka plan temiz
-        xaxis=dict(showgrid=False, title="Tarih"),
-        yaxis=dict(showgrid=True, gridcolor='#f0f0f0', title="Fiyat")
-    )
-    return fig
+        df = yf.download(ticker, period="1mo", interval="1d", progress=False)
+        if df.empty: return None
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', line=dict(color=color, width=2)))
+        fig.update_layout(
+            height=120, margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(visible=False), yaxis=dict(visible=False),
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+        )
+        return fig
+    except: return None
 
 @st.cache_data(ttl=60)
 def piyasa_canli():
@@ -61,21 +49,34 @@ def piyasa_canli():
 
 dolar_kuru, ons_altin, ons_gumus, son_guncelleme = piyasa_canli()
 
-# --- SIDEBAR ---
+# --- GOOGLE SHEETS ---
+def get_gsheet_client():
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        client = gspread.authorize(creds)
+        return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
+    except: return None
+
+sheet = get_gsheet_client()
+
+# --- SIDEBAR (GRAFİKLER BURAYA TAŞINDI) ---
 with st.sidebar:
     st.title("💎 CRIPP Jewelry")
-    st.divider()
-    st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
+    st.success(f"🕒 {son_guncelleme}")
     
-    st.markdown("### 📈 Anlık Kurlar")
+    st.divider()
+    # Dolar
     st.metric("💵 Dolar/TL", f"{dolar_kuru:.2f} ₺")
+    st.plotly_chart(get_sidebar_chart("USDTRY=X", "#27ae60"), use_container_width=True, config={'displayModeBar': False})
+    
+    # Altın
     st.metric("🥇 Altın Ons", f"${ons_altin:.0f}")
-    st.metric("🥈 Gümüş Ons", f"${ons_gumus:.2f}")
+    st.plotly_chart(get_sidebar_chart("GC=F", "#f1c40f"), use_container_width=True, config={'displayModeBar': False})
     
     st.divider()
     gr_altin_tl = (ons_altin / 31.1035) * dolar_kuru
-    gr_gumus_tl = (ons_gumus / 31.1035) * dolar_kuru
-    st.info(f"**Has Altın:** {gr_altin_tl:.2f} ₺\n\n**Has Gümüş:** {gr_gumus_tl:.2f} ₺")
+    st.info(f"⚖️ **Has Altın:** {gr_altin_tl:.2f} ₺")
     
     st.divider()
     gr_iscilik = st.number_input("🛠️ İşçilik ($/gr)", value=1.50)
@@ -83,26 +84,49 @@ with st.sidebar:
     indirim = st.number_input("🏷️ İndirim (%)", value=15.0)
     view_mode = st.radio("Görünüm", ["🎨 Kartlar", "📋 Liste"])
 
-# --- ANA EKRAN ---
-st.title("💎 Fiyat Takip ve Yönetim")
+# --- ANA EKRAN (TABLAR GERİ GELDİ) ---
+st.title("💎 Etsy Akıllı Fiyat Paneli")
 
-# Sadeleştirilmiş Grafik Alanı
-st.markdown("### 📊 30 Günlük Değişim Trendi")
-g_col1, g_col2, g_col3 = st.columns(3)
+tab1, tab2 = st.tabs(["📊 Ürün Yönetimi", "➕ Yeni Ürün Ekle"])
 
-with g_col1:
-    f1 = draw_simple_line_chart(get_clean_data("USDTRY=X"), "Dolar/TL", "#27ae60")
-    if f1: st.plotly_chart(f1, use_container_width=True)
+if sheet:
+    try:
+        df = pd.DataFrame(sheet.get_all_records())
+    except: df = pd.DataFrame()
 
-with g_col2:
-    f2 = draw_simple_line_chart(get_clean_data("GC=F"), "Altın Ons ($)", "#f1c40f")
-    if f2: st.plotly_chart(f2, use_container_width=True)
+    with tab1:
+        if not df.empty:
+            # Kategori Filtresi (Pills)
+            mevcut_kats = ["Hepsi"] + sorted(list(df['Kategori'].unique()))
+            sel_kat = st.pills("Kategoriler", mevcut_kats, default="Hepsi")
+            
+            search = st.text_input("🔍 İsimle ara...", "").lower()
+            mask = df['Ürün'].astype(str).str.lower().str.contains(search)
+            if sel_kat != "Hepsi": mask = mask & (df['Kategori'] == sel_kat)
+            
+            f_df = df[mask]
+            
+            if view_mode == "🎨 Kartlar":
+                cols = st.columns(4)
+                for idx, row in f_df.reset_index().iterrows():
+                    m_gram = safe_float(row.get('Gr', 0))
+                    m_hedef = safe_float(row.get('Hedef Kar', 0))
+                    ons = ons_altin if row.get('Maden') == "Altın" else ons_gumus
+                    
+                    maliyet = ((ons/31.1035) * m_gram * dolar_kuru) + (m_gram * gr_iscilik * dolar_kuru) + \
+                              safe_float(row.get('KaplamaTL',0)) + safe_float(row.get('LazerTL',0)) + kargo
+                    fiyat = (maliyet + m_hedef) / (1 - (0.17 + indirim/100))
 
-with g_col3:
-    f3 = draw_simple_line_chart(get_clean_data("SI=F"), "Gümüş Ons ($)", "#7f8c8d")
-    if f3: st.plotly_chart(f3, use_container_width=True)
+                    with cols[idx % 4]:
+                        st.markdown(f"""
+                        <div style="background-color:white; padding:10px; border-radius:15px; border:1px solid #eee; text-align:center;">
+                            <img src="data:image/jpeg;base64,{row.get('GörselData','')}" style="width:100%; height:130px; object-fit:contain;">
+                            <p style="font-weight:bold; font-size:14px; margin:5px 0;">{row.get('Ürün','Adsız')}</p>
+                            <h2 style="color:#d63031; margin:0;">{round(fiyat, 2)} ₺</h2>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        st.divider()
+            else: st.dataframe(f_df, use_container_width=True)
 
-st.divider()
-
-# Ürün Yönetimi ve Tab yapısı burada devam eder...
-# (Daha önce çalışan ürün listeleme kodlarını bu satırın altına ekleyebilirsin)
+    with tab2:
+        st.write("Buradan yeni ürün ekleyebilirsiniz (Form kodlarınızı buraya ekleyin).")
