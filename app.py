@@ -18,7 +18,7 @@ def get_gsheet_client():
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1
-    except Exception as e:
+    except Exception:
         return None
 
 # --- GÖRSEL İŞLEME ---
@@ -34,18 +34,30 @@ def image_to_base64(image_file):
         except: return ""
     return ""
 
-# --- PİYASA VERİLERİ ---
-@st.cache_data(ttl=120)
+# --- PİYASA VERİLERİ (KUR GÜNCELLEME DÜZELTİLDİ) ---
+@st.cache_data(ttl=60)
 def piyasa_verileri():
     try:
-        dolar = yf.Ticker("USDTRY=X").history(period="1d")['Close'].iloc[-1]
+        # USD/TRY - En güncel dakikalık veriyi çekmeye zorla
+        dolar_ticker = yf.Ticker("USDTRY=X")
+        dolar_df = dolar_ticker.history(period="1d", interval="1m")
+        if not dolar_df.empty:
+            dolar = dolar_df['Close'].iloc[-1]
+        else:
+            dolar = dolar_ticker.history(period="5d")['Close'].iloc[-1]
+
+        # Altın ve Gümüş Ons
         altin = yf.Ticker("GC=F").history(period="1d")['Close'].iloc[-1]
         gumus = yf.Ticker("SI=F").history(period="1d")['Close'].iloc[-1]
+        
         saat = datetime.datetime.now().strftime("%H:%M:%S")
-        return dolar, altin, gumus, saat
-    except: 
-        return 43.27, 2650.0, 31.0, "Bilinmiyor"
+        return float(dolar), float(altin), float(gumus), saat
+    except Exception: 
+        # Hata durumunda güvenli değerler ve hata saati
+        hata_saati = datetime.datetime.now().strftime("%H:%M:%S")
+        return 43.27, 2650.0, 31.0, f"Yenileniyor: {hata_saati}"
 
+# Verileri çek
 dolar_kuru, ons_altin, ons_gumus, son_guncelleme = piyasa_verileri()
 sheet = get_gsheet_client()
 
@@ -67,6 +79,7 @@ with st.sidebar:
         st.title("💎 CRIPP Jewelry")
     
     st.divider()
+    # Kur ve Son Kontrol Alanı
     st.success(f"🕒 **Son Kontrol:** {son_guncelleme}")
     st.metric(label="💵 Canlı Dolar Kuru", value=f"{dolar_kuru:.2f} ₺")
     kur = float(dolar_kuru) 
@@ -103,33 +116,30 @@ with tab2:
             if u_ad and sheet:
                 safe_gr = u_gr.replace(',', '.')
                 img_data = image_to_base64(u_img)
-                # Sıralama: Ürün, Maden, Gr, Kar, Görsel, Kategori, Kaplama, Lazer, Zincir
+                # Sıralama: A:Ürün, B:Maden, C:Gr, D:Kar, E:Görsel, F:Kategori, G:KaplamaTL, H:LazerTL, I:ZincirTL
                 sheet.append_row([u_ad, u_maden, safe_gr, u_kar, img_data, u_kat, u_kap, u_laz, u_zin])
                 st.success(f"{u_ad} başarıyla eklendi!")
                 st.rerun()
 
 with tab1:
     if not df.empty:
-        # --- BUTON ŞEKLİNDE KATEGORİ FİLTRESİ ---
+        # --- BUTON KATEGORİ FİLTRESİ ---
         st.write("### 📁 Kategoriler")
         mevcut_kategoriler = ["Hepsi"] + sorted(list(df['Kategori'].unique()))
         
-        # Session state ile seçili kategoriyi tutalım
         if 'selected_kat' not in st.session_state:
             st.session_state.selected_kat = "Hepsi"
 
         kat_cols = st.columns(len(mevcut_kategoriler))
         for i, kat in enumerate(mevcut_kategoriler):
-            # Seçili butonu farklı renkte gösterelim
             btn_type = "primary" if st.session_state.selected_kat == kat else "secondary"
-            if kat_cols[i].button(kat, key=f"kat_btn_{kat}", use_container_width=True, type=btn_type):
+            if kat_cols[i].button(kat, key=f"btn_{kat}", use_container_width=True, type=btn_type):
                 st.session_state.selected_kat = kat
                 st.rerun()
         
         st.divider()
         search = st.text_input("🔍 İsimle ara...", "").lower()
 
-        # Filtreleme Uygula
         mask = df['Ürün'].astype(str).str.lower().str.contains(search)
         if st.session_state.selected_kat != "Hepsi":
             mask = mask & (df['Kategori'] == st.session_state.selected_kat)
@@ -140,30 +150,30 @@ with tab1:
             cols = st.columns(4)
             for idx, row in filtered_df.reset_index().iterrows():
                 actual_row_idx = int(row['index']) + 2 
+                
+                # Veri Çekme
                 m_ad = row.get('Ürün', 'Adsız')
                 m_tur = row.get('Maden', 'Gümüş')
                 m_kat = row.get('Kategori', 'Genel')
                 m_gram = float(str(row.get('Gr', 0)).replace(',', '.')) if row.get('Gr') else 0.0
                 m_hedef = float(row.get('Hedef Kar', 0)) if row.get('Hedef Kar') else 0.0
                 m_img = row.get('GörselData', '')
-                m_kap = float(row.get('KaplamaTL', 0)) if row.get('KaplamaTL') else 0.0
-                m_laz = float(row.get('LazerTL', 0)) if row.get('LazerTL') else 0.0
-                m_zin = float(row.get('ZincirTL', 0)) if row.get('ZincirTL') else 0.0
+                m_kap = float(row.get('KaplamaTL', 0)) if 'KaplamaTL' in row else 0.0
+                m_laz = float(row.get('LazerTL', 0)) if 'LazerTL' in row else 0.0
+                m_zin = float(row.get('ZincirTL', 0)) if 'ZincirTL' in row else 0.0
 
-                # --- HESAPLAMA ---
+                # --- HESAPLAMA MOTORU ---
                 ons = ons_altin if m_tur == "Altın" else ons_gumus
                 maden_tl = (ons / 31.1035) * m_gram * kur
                 iscilik_tl = m_gram * gr_iscilik * kur
+                
                 toplam_maliyet = maden_tl + iscilik_tl + m_kap + m_laz + m_zin + kargo
                 satis_fiyati = (toplam_maliyet + m_hedef) / (1 - (etsy_komisyon + indirim_oran/100))
                 
                 with cols[idx % 4]:
-                    # Kategoriye göre badge rengi
-                    kat_color = "#00332B" if m_kat == "Kolye" else "#1e3a8a" if m_kat == "Yüzük" else "#5b21b6"
-                    
                     st.markdown(f"""
                     <div style="background-color:white; padding:12px; border-radius:15px; border:1px solid #eee; text-align:center; margin-bottom:10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
-                        <div style="font-size:10px; color:white; background:{kat_color}; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
+                        <div style="font-size:10px; color:white; background:#00332B; width:fit-content; padding:2px 8px; border-radius:10px; margin-bottom:5px;">{m_kat}</div>
                         <img src="data:image/jpeg;base64,{m_img}" style="width:100%; height:140px; object-fit:contain; border-radius:8px;">
                         <p style="font-weight:bold; margin:8px 0 2px 0; color:#2d3436; font-size:14px; height:40px; overflow:hidden;">{m_ad}</p>
                         <h2 style="color:#d63031; margin:0;">{round(satis_fiyati, 2)} ₺</h2>
@@ -172,29 +182,27 @@ with tab1:
                     """, unsafe_allow_html=True)
                     
                     b1, b2 = st.columns(2)
-                    with b1:
-                        if st.button("✏️", key=f"e_{actual_row_idx}"):
-                            st.session_state[f"edit_{actual_row_idx}"] = True
-                    with b2:
-                        if st.button("🗑️", key=f"d_{actual_row_idx}"):
-                            sheet.delete_rows(actual_row_idx)
-                            st.rerun()
+                    if b1.button("✏️", key=f"edit_{actual_row_idx}"):
+                        st.session_state[f"mode_{actual_row_idx}"] = True
+                    if b2.button("🗑️", key=f"del_{actual_row_idx}"):
+                        sheet.delete_rows(actual_row_idx)
+                        st.rerun()
 
-                    if st.session_state.get(f"edit_{actual_row_idx}", False):
-                        with st.form(key=f"f_{actual_row_idx}"):
+                    if st.session_state.get(f"mode_{actual_row_idx}", False):
+                        with st.form(key=f"form_{actual_row_idx}"):
                             e_name = st.text_input("İsim", value=m_ad)
-                            e_gr = st.text_input("Gramaj", value=str(m_gram))
-                            e_kar = st.number_input("Hedef Kar", value=float(m_hedef))
+                            e_gr = st.text_input("Gr", value=str(m_gram))
+                            e_kar = st.number_input("Kar", value=float(m_hedef))
                             e_kap = st.number_input("Kaplama TL", value=m_kap)
                             e_laz = st.number_input("Lazer TL", value=m_laz)
                             e_zin = st.number_input("Zincir TL", value=m_zin)
                             if st.form_submit_button("Kaydet"):
-                                vals = [e_name, m_tur, e_gr.replace(',','.'), e_kar, m_img, m_kat, e_kap, e_laz, e_zin]
-                                for i, val in enumerate(vals, 1):
+                                updates = [e_name, m_tur, e_gr.replace(',','.'), e_kar, m_img, m_kat, e_kap, e_laz, e_zin]
+                                for i, val in enumerate(updates, 1):
                                     sheet.update_cell(actual_row_idx, i, val)
-                                st.session_state[f"edit_{actual_row_idx}"] = False
+                                st.session_state[f"mode_{actual_row_idx}"] = False
                                 st.rerun()
         else:
             st.dataframe(filtered_df, use_container_width=True)
     else:
-        st.info("Veri bulunamadı. Lütfen ürün ekleyin.")
+        st.info("Veri yok. Yeni ürün ekleyin.")
