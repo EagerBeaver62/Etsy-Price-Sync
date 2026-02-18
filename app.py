@@ -7,13 +7,11 @@ from io import BytesIO
 from PIL import Image
 import datetime
 import requests
-import json
 import time
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="CRIPP Jewelry", layout="wide", page_icon="💎")
+st.set_page_config(page_title="CRIPP Jewelry", layout="wide")
 
-# --- YARDIMCI FONKSİYONLAR ---
 def safe_float(value):
     try:
         if value is None or str(value).strip() == "": return 0.0
@@ -24,33 +22,12 @@ def image_to_base64(image_file):
     if image_file is not None:
         try:
             img = Image.open(image_file)
-            if img.mode != "RGB": img = img.convert("RGB")
-            img.thumbnail((200, 200)) 
+            img.thumbnail((250, 250)) 
             buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=80)
+            img.save(buffered, format="JPEG", quality=85)
             return base64.b64encode(buffered.getvalue()).decode('utf-8')
         except: return ""
     return ""
-
-# --- VERİ ÇEKME (HAREM ALTIN) ---
-@st.cache_data(ttl=60)
-def get_market_data():
-    url = "https://www.haremaltin.com/dashboard/ajax/pol"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        r = requests.post(url, headers=headers, timeout=5)
-        d = r.json().get('data', {})
-        return {
-            'gumus_usd': safe_float(d.get('GUMUSUSD', {}).get('satis')),
-            'altin_tl': safe_float(d.get('ALTIN', {}).get('satis')),
-            'dolar_tl': safe_float(d.get('USDTRY', {}).get('satis')),
-            'altin_ons': safe_float(d.get('ALTINONS', {}).get('satis')),
-            'status': 'success'
-        }
-    except:
-        return {'gumus_usd': 31.5, 'altin_tl': 3000, 'dolar_tl': 34.5, 'altin_ons': 2650, 'status': 'fail'}
-
-m_data = get_market_data()
 
 # --- GOOGLE SHEETS BAĞLANTISI ---
 def get_sheet():
@@ -58,124 +35,134 @@ def get_sheet():
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
-        # Tablo Yapısı: Ürün(A), Maden(B), Gr(C), Kar(D), Görsel(E), Kategori(F), Kaplama(G), Lazer(H), Mine(I)
+        # Sütun Düzeni: A:Ürün, B:Maden, C:Gr, D:Kar, E:Görsel, F:Kategori, G:Kaplama, H:Lazer, I:Mine
         sh = client.open_by_key("1mnUAeYsRVIooHToi3hn7cGZanIBhyulknRTOyY9_v2E").sheet1 
-        return pd.DataFrame(sh.get_all_records()), sh
-    except: return pd.DataFrame(), None
+        data = sh.get_all_records()
+        return pd.DataFrame(data), sh
+    except Exception as e:
+        st.error(f"Bağlantı Hatası: {e}")
+        return pd.DataFrame(), None
 
 df, sheet = get_sheet()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (AYARLAR) ---
 with st.sidebar:
     st.title("💎 Ayarlar")
-    dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=m_data['dolar_tl'])
+    dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=43.76, step=0.01)
     
-    st.subheader("🥈 Gümüş")
-    gumus_ons_usd = st.number_input("Gümüş Ons ($)", value=m_data['gumus_usd'])
+    st.divider()
+    st.subheader("🥈 Gümüş Parametreleri")
+    # Kullanıcı dostu olması için Gram $/gr üzerinden gidiyoruz
+    gumus_gram_usd = st.number_input("Gümüş Gram Fiyatı ($)", value=1.05, format="%.2f", help="Has gümüşün gram dolar fiyatı")
     iscilik_gumus = st.number_input("Gümüş İşçilik ($/gr)", value=1.50)
     
-    st.subheader("🥇 Altın (14K)")
-    altin_ons_usd = st.number_input("Altın Ons ($)", value=m_data['altin_ons'])
+    st.divider()
+    st.subheader("🥇 Altın (14K) Parametreleri")
+    altin_has_gram_usd = st.number_input("Has Altın Gram Fiyatı ($)", value=85.0, format="%.2f", help="24 ayar has altının gram dolar fiyatı")
     iscilik_altin = st.number_input("Altın İşçilik ($/gr)", value=10.0)
     
     st.divider()
-    kargo_tl = st.number_input("🚚 Kargo (TL)", value=650.0)
-    indirim = st.number_input("🏷️ Etsy İndirim (%)", value=15.0)
+    kargo_tl = st.number_input("📦 Kargo (TL)", value=650.0)
+    indirim_yuzde = st.number_input("🏷️ Etsy İndirim (%)", value=15.0)
 
-# --- ANA PANEL ---
-st.header("Etsy Akıllı Fiyat Paneli")
+# --- ANA EKRAN ---
+st.title("Etsy Akıllı Fiyat Paneli")
 t1, t2 = st.tabs(["📊 Ürün Listesi", "➕ Yeni Ürün Ekle"])
 
 with t1:
+    search = st.text_input("🔍 Ürün ismi ile ara...")
     if not df.empty:
-        # Arama ve Filtre
-        search = st.text_input("🔍 Ürün ismi ile ara...")
         f_df = df[df['Ürün'].str.contains(search, case=False)] if search else df
         
         cols = st.columns(4)
         for idx, row in f_df.reset_index().iterrows():
-            row_idx = int(row.get('index', 0)) + 2 # Google Sheet satır numarası
+            # Google Sheet satırı (Header dahil olduğu için index+2)
+            row_idx = int(row.get('index')) + 2
             
-            # Verileri Al
+            # Değerleri al
             gr = safe_float(row.get('Gr', 0))
             kar = safe_float(row.get('Hedef Kar', 0))
             kaplama = safe_float(row.get('KaplamaTL', 0))
             lazer = safe_float(row.get('LazerTL', 0))
-            mine = safe_float(row.get('MineTL', 0)) # Yeni Alan
+            mine = safe_float(row.get('MineTL', 0))
             
-            # HESAPLAMALAR
-            komisyon_orani = 0.17 + (indirim/100)
+            # --- HESAPLAMA MOTORU ---
+            komisyon = 0.17 + (indirim_yuzde / 100)
             
-            # Gümüş Fiyatı
-            g_maliyet_tl = ((gr * (gumus_ons_usd + iscilik_gumus)) * dolar_kuru) + kaplama + lazer + mine + kargo_tl
-            fiyat_gumus = (g_maliyet_tl + kar) / (1 - komisyon_orani)
+            # 1. Gümüş Fiyatı
+            g_maliyet_usd = gr * (gumus_gram_usd + iscilik_gumus)
+            g_toplam_tl = (g_maliyet_usd * dolar_kuru) + kaplama + lazer + mine + kargo_tl
+            fiyat_gumus = (g_toplam_tl + kar) / (1 - komisyon)
             
-            # Altın Fiyatı (14K) - Yoğunluk farkı 1.35x
-            altin_gr = gr * 1.35
-            a_maliyet_tl = ((altin_gr * ((altin_ons_usd/31.1*0.585) + iscilik_altin)) * dolar_kuru) + lazer + mine + kargo_tl
-            fiyat_altin = (a_maliyet_tl + (kar * 1.5)) / (1 - komisyon_orani)
+            # 2. 14K Altın Fiyatı
+            # Önemli: Gümüşten Altına dökümde ağırlık ~1.35 kat artar.
+            altin_gr_tahmin = gr * 1.35
+            # 14 Ayar has altın oranı: 0.585
+            a_maliyet_usd = altin_gr_tahmin * ((altin_has_gram_usd * 0.585) + iscilik_altin)
+            a_toplam_tl = (a_maliyet_usd * dolar_kuru) + lazer + mine + kargo_tl
+            fiyat_altin = (a_toplam_tl + (kar * 1.5)) / (1 - komisyon)
 
             with cols[idx % 4]:
-                img_data = row.get('GörselData', '')
                 st.markdown(f"""
-                <div style="background:white; padding:10px; border-radius:10px; border:1px solid #ddd; text-align:center;">
-                    <img src="data:image/jpeg;base64,{img_data}" style="width:100%; height:150px; object-fit:contain;">
-                    <h6 style="margin:10px 0;">{row['Ürün']}</h6>
-                    <div style="background:#f9f9f9; padding:5px; border-radius:5px; margin-bottom:5px;">
-                        <small>🥈 Gümüş</small><br><b>{fiyat_gumus:,.0f} ₺</b>
+                <div style="border:1px solid #eee; border-radius:15px; padding:15px; background:white; text-align:center; box-shadow: 2px 2px 10px rgba(0,0,0,0.05);">
+                    <img src="data:image/jpeg;base64,{row['GörselData']}" style="width:100%; height:180px; object-fit:contain; border-radius:10px;">
+                    <p style="font-weight:bold; margin-top:10px; font-size:14px; min-height:40px;">{row['Ürün']}</p>
+                    <div style="background:#f8f9fa; padding:10px; border-radius:10px;">
+                        <span style="color:#6c757d; font-size:12px;">🥈 Gümüş</span><br>
+                        <span style="font-size:18px; font-weight:bold; color:#27ae60;">{fiyat_gumus:,.0f} ₺</span>
                     </div>
-                    <div style="background:#fff4e6; padding:5px; border-radius:5px;">
-                        <small>🟡 14K Altın</small><br><b>{fiyat_altin:,.0f} ₺</b>
+                    <div style="background:#fffcf0; padding:10px; border-radius:10px; margin-top:5px; border:1px solid #ffeaa7;">
+                        <span style="color:#d35400; font-size:12px;">🟡 14K Altın</span><br>
+                        <span style="font-size:18px; font-weight:bold; color:#e67e22;">{fiyat_altin:,.0f} ₺</span>
                     </div>
-                    <div style="font-size:10px; color:gray; margin-top:5px;">
-                        {gr}gr | Kar: {kar}₺ | Mine: {mine}₺
+                    <div style="font-size:10px; color:gray; margin-top:10px;">
+                        ⚖️ {gr}gr | 🎯 Kar: {kar}₺ | 🎨 Mine: {mine}₺
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # DÜZENLEME VE SİLME
-                c_edit, c_del = st.columns(2)
-                if c_edit.button("✏️", key=f"edit_{idx}"):
-                    st.session_state[f"active_edit"] = idx
-                
-                if c_del.button("🗑️", key=f"del_{idx}"):
+                # Butonlar
+                c1, c2 = st.columns(2)
+                if c1.button("✏️ Düzenle", key=f"ed_{idx}"):
+                    st.session_state[f"edit_mode_{idx}"] = True
+                if c2.button("🗑️ Sil", key=f"del_{idx}"):
                     sheet.delete_rows(row_idx)
                     st.rerun()
-
-                # Düzenleme Formu (Tüm alanlar değiştirilebilir)
-                if st.session_state.get("active_edit") == idx:
-                    with st.form(f"form_{idx}"):
+                
+                # --- DÜZENLEME FORMU ---
+                if st.session_state.get(f"edit_mode_{idx}"):
+                    with st.form(f"f_{idx}"):
                         new_ad = st.text_input("Ürün Adı", value=row['Ürün'])
-                        new_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Küpe", "Bileklik"], index=0)
-                        new_gr = st.number_input("Gram", value=gr)
-                        new_kar = st.number_input("Kar", value=kar)
+                        new_gr = st.number_input("Gümüş Gram", value=gr)
+                        new_kar = st.number_input("Kar (TL)", value=kar)
+                        new_mine = st.number_input("Mine Bedeli (TL)", value=mine)
                         new_kap = st.number_input("Kaplama (TL)", value=kaplama)
                         new_laz = st.number_input("Lazer (TL)", value=lazer)
-                        new_mine = st.number_input("Mine Bedeli (TL)", value=mine)
                         
-                        if st.form_submit_button("💾 Güncelle"):
-                            # Tablo yapısına göre güncelleme (A'dan I'ya)
-                            sheet.update(f"A{row_idx}:I{row_idx}", [[
-                                new_ad, row['Maden'], new_gr, new_kar, img_data, new_kat, new_kap, new_laz, new_mine
-                            ]])
-                            st.session_state["active_edit"] = None
+                        if st.form_submit_button("💾 Değişiklikleri Kaydet"):
+                            # Tüm satırı güncelle (A:I sütunları)
+                            updates = [new_ad, row['Maden'], new_gr, new_kar, row['GörselData'], row['Kategori'], new_kap, new_laz, new_mine]
+                            sheet.update(f"A{row_idx}:I{row_idx}", [updates])
+                            st.session_state[f"edit_mode_{idx}"] = False
                             st.rerun()
 
 with t2:
-    st.subheader("Yeni Ürün Kaydı")
-    with st.form("yeni_urun"):
-        u_ad = st.text_input("Ürün Adı")
-        u_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Küpe", "Bileklik", "Diğer"])
-        u_gr = st.number_input("Gümüş Ağırlığı (gr)", value=0.0, step=0.1)
-        u_kar = st.number_input("Hedef Kar (TL)", value=3000)
-        u_mine = st.number_input("Mine Bedeli (TL)", value=0)
-        u_kap = st.number_input("Kaplama (TL)", value=0)
-        u_laz = st.number_input("Lazer (TL)", value=0)
-        u_img = st.file_uploader("Ürün Görseli", type=['jpg', 'png'])
+    st.subheader("Yeni Ürün Ekle")
+    with st.form("yeni_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            u_ad = st.text_input("Ürün Adı")
+            u_gr = st.number_input("Gram (Gümüş)", value=0.0)
+            u_kar = st.number_input("Hedef Kar (TL)", value=3000)
+        with c2:
+            u_mine = st.number_input("Mine Bedeli (TL)", value=0)
+            u_kap = st.number_input("Kaplama (TL)", value=0)
+            u_img = st.file_uploader("Ürün Görseli", type=['jpg','png'])
         
         if st.form_submit_button("Listeye Ekle"):
             img_b64 = image_to_base64(u_img)
-            sheet.append_row([u_ad, "Gümüş", u_gr, u_kar, img_b64, u_kat, u_kap, u_laz, u_mine])
-            st.success("Ürün başarıyla eklendi!")
+            # A'dan I'ya kadar veriyi ekle
+            sheet.append_row([u_ad, "Gümüş", u_gr, u_kar, img_b64, "Genel", u_kap, 0, u_mine])
+            st.success("Ürün eklendi!")
             time.sleep(1)
             st.rerun()
