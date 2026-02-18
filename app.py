@@ -115,34 +115,42 @@ with st.sidebar:
     
     st.metric("💵 Dolar/TL", f"{dolar_kuru:.2f} ₺")
     
-    # ALTIN GÖSTERGESİ
-    has_altin_usd_gr = altin_ons / 31.1035
-    st.metric("🟡 Has Altın (Ons Bazlı)", f"${has_altin_usd_gr:.2f} / gr")
-    st.divider()
-
-    # GÜMÜŞ AYARLARI
+    # --- 1. GÜMÜŞ AYARLARI ---
     st.subheader("🥈 Gümüş Ayarları")
     raw_gumus = market_data['gumus_usd']
-    if raw_gumus > 500: # KG fiyatı geldiyse
-        auto_gumus_gram_usd = raw_gumus / 1000
-    else:
-        auto_gumus_gram_usd = raw_gumus
+    if raw_gumus > 500: auto_gumus_gram_usd = raw_gumus / 1000
+    else: auto_gumus_gram_usd = raw_gumus
 
-    mode = st.radio("Gümüş Kaynağı", ["Otomatik", "Manuel"], horizontal=True)
+    mode_gumus = st.radio("Gümüş Kaynağı", ["Otomatik", "Manuel"], horizontal=True, key="gumus_radio")
     
-    if mode == "Otomatik" and market_data['status'] == 'success':
+    if mode_gumus == "Otomatik" and market_data['status'] == 'success':
         gumus_baz_usd = auto_gumus_gram_usd
-        st.info(f"Gümüş: ${gumus_baz_usd:.3f}")
+        st.info(f"Harem Gümüş: ${gumus_baz_usd:.3f}")
     else:
-        varsayilan = 3.15 if auto_gumus_gram_usd == 0 else auto_gumus_gram_usd
-        gumus_baz_usd = st.number_input("Manuel Gümüş ($/Gr)", value=float(varsayilan), step=0.01, format="%.3f")
+        varsayilan_g = 3.15 if auto_gumus_gram_usd == 0 else auto_gumus_gram_usd
+        gumus_baz_usd = st.number_input("Manuel Gümüş ($/Gr)", value=float(varsayilan_g), step=0.01, format="%.3f")
     
+    st.divider()
+
+    # --- 2. ALTIN AYARLARI (YENİ) ---
+    st.subheader("🥇 Altın Ayarları")
+    has_altin_usd_gr = altin_ons / 31.1035
+    
+    mode_altin = st.radio("Altın Kaynağı", ["Otomatik", "Manuel"], horizontal=True, key="altin_radio")
+
+    if mode_altin == "Otomatik" and market_data['status'] == 'success':
+        altin_baz_usd = has_altin_usd_gr
+        st.info(f"Harem Has Altın: ${altin_baz_usd:.2f}")
+    else:
+        varsayilan_a = 2650.0 / 34.0 if has_altin_usd_gr == 0 else has_altin_usd_gr
+        altin_baz_usd = st.number_input("Manuel Has Altın ($/Gr)", value=float(varsayilan_a), step=1.0, format="%.2f", help="Buraya 24 Ayar (Has) Dolar fiyatını girin.")
+
     st.divider()
     
     # MALİYETLER
     st.write("🔧 **İşçilik & Giderler**")
     iscilik_gumus = st.number_input("Gümüş İşçilik ($/gr)", value=1.50, step=0.10)
-    iscilik_altin = st.number_input("Altın İşçilik ($/gr)", value=10.00, step=0.50, help="Altın ürünler için gram başı işçilik")
+    iscilik_altin = st.number_input("Altın İşçilik ($/gr)", value=10.00, step=0.50)
     
     kargo_tl = st.number_input("Kargo (TL)", value=650.0)
     indirim_yuzde = st.number_input("Etsy İndirim (%)", value=15.0)
@@ -182,51 +190,49 @@ with t1:
                 m_laz = safe_float(row.get('LazerTL', 0))
                 m_maden = str(row.get('Maden', 'Gümüş'))
                 
-                # --- HESAPLAMA MANTIĞI (GÜMÜŞ vs ALTIN) ---
-                if "Altın" in m_maden:
-                    # Altın İşçiliği ve Milyem Hesabı
-                    aktif_iscilik = iscilik_altin
-                    base_price = altin_ons / 31.1035 # 24K Gram Dolar Fiyatı
-                    
-                    # Ayar (Milyem) Kontrolü
-                    if "14K" in m_maden: factor = 0.585
-                    elif "18K" in m_maden: factor = 0.750
-                    elif "22K" in m_maden: factor = 0.916
-                    else: factor = 1.00 # Has Altın
-                    
-                    birim_fiyat_usd = base_price * factor
-                    etiket_maden = f"{m_maden}"
-                else:
-                    # Gümüş Hesabı
-                    aktif_iscilik = iscilik_gumus
-                    birim_fiyat_usd = gumus_baz_usd
-                    etiket_maden = "Gümüş"
-                
-                # Genel Maliyet Hesabı
-                ham_maden_usd = m_gr * birim_fiyat_usd
-                toplam_dolar_maliyeti = ham_maden_usd + (m_gr * aktif_iscilik)
-                maliyet_tl = (toplam_dolar_maliyeti * dolar_kuru) + m_kap + m_laz + kargo_tl
-                
+                # --- FİYAT HESAPLAMA MOTORU ---
                 komisyon = 0.17 + (indirim_yuzde / 100)
-                satis_fiyati = (maliyet_tl + m_kar) / (1 - komisyon)
                 
+                # 1. GÜMÜŞ FİYATI HESAPLA (Varsayılan olarak her zaman hesapla)
+                cost_gumus_usd = (m_gr * gumus_baz_usd) + (m_gr * iscilik_gumus)
+                cost_gumus_tl = (cost_gumus_usd * dolar_kuru) + m_kap + m_laz + kargo_tl
+                fiyat_gumus = (cost_gumus_tl + m_kar) / (1 - komisyon)
+                
+                # 2. ALTIN (14K) FİYATI HESAPLA (Karşılaştırma için)
+                # ÖNEMLİ: Gümüş kalıbı altına dökülürse yaklaşık 1.35 kat ağır gelir.
+                # 14 Ayar Milyem: 0.585
+                altin_yogunluk_farki = 1.35 
+                tahmini_altin_gr = m_gr * altin_yogunluk_farki
+                
+                cost_altin_usd = (tahmini_altin_gr * altin_baz_usd * 0.585) + (tahmini_altin_gr * iscilik_altin)
+                cost_altin_tl = (cost_altin_usd * dolar_kuru) + m_laz + kargo_tl # Altında kaplama olmaz genelde
+                
+                # Altında kar marjı genelde daha yüksek istenir ama şimdilik aynı karı ekleyelim
+                # veya karı oranlayabiliriz. Şimdilik sabit kar + %10 risk payı koyalım
+                fiyat_altin = (cost_altin_tl + (m_kar * 1.5)) / (1 - komisyon)
+
                 # KART GÖSTERİMİ
                 with cols[idx % 4]:
                     img = row.get('GörselData', '')
-                    # Maden rengine göre etiket
-                    badge_color = "#fff3cd" if "Altın" in m_maden else "#e0f7fa"
-                    text_color = "#856404" if "Altın" in m_maden else "#006064"
                     
                     st.markdown(f"""
-                    <div style="background:white; padding:15px; border-radius:12px; border:1px solid #eee; text-align:center;">
-                        <span style="background:{badge_color}; color:{text_color}; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;">
-                            {etiket_maden} | ${ham_maden_usd:.1f}
-                        </span>
-                        <img src="data:image/jpeg;base64,{img}" style="height:120px; object-fit:contain; margin-top:15px;">
-                        <p style="font-weight:bold; margin:10px 0 5px 0; font-size:14px; height:40px; overflow:hidden;">{row.get('Ürün')}</p>
-                        <h3 style="color:#27ae60; margin:0;">{satis_fiyati:,.0f} ₺</h3>
-                        <div style="font-size:11px; color:gray; border-top:1px solid #eee; padding-top:5px;">
-                            ⚖️ {m_gr} Gr | 🎯 Kar: {m_kar}₺
+                    <div style="background:white; padding:15px; border-radius:12px; border:1px solid #eee; text-align:center; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+                        <img src="data:image/jpeg;base64,{img}" style="height:120px; object-fit:contain; margin-bottom:10px;">
+                        <p style="font-weight:bold; margin:0 0 10px 0; font-size:14px; height:40px; overflow:hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">{row.get('Ürün')}</p>
+                        
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8f9fa; padding:8px; border-radius:8px;">
+                            <div style="text-align:left; width:48%; border-right:1px solid #ddd;">
+                                <div style="font-size:10px; color:#7f8c8d;">🥈 925 Gümüş</div>
+                                <div style="color:#2c3e50; font-weight:bold; font-size:15px;">{fiyat_gumus:,.0f} ₺</div>
+                            </div>
+                            <div style="text-align:right; width:48%;">
+                                <div style="font-size:10px; color:#f39c12;">🟡 14K Altın</div>
+                                <div style="color:#d35400; font-weight:bold; font-size:15px;">{fiyat_altin:,.0f} ₺</div>
+                            </div>
+                        </div>
+
+                        <div style="font-size:10px; color:gray; margin-top:8px;">
+                            ⚖️ Ag: {m_gr}gr | Au: ~{tahmini_altin_gr:.1f}gr
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -242,8 +248,8 @@ with t1:
                     if st.session_state.get(f"form_{idx}"):
                         with st.form(f"edit_form_{idx}"):
                             n_name = st.text_input("Ad", value=row.get('Ürün'))
-                            n_gr = st.text_input("Gram", value=str(m_gr))
-                            n_kar = st.number_input("Kar (TL)", value=float(m_kar))
+                            n_gr = st.text_input("Gümüş Gram", value=str(m_gr))
+                            n_kar = st.number_input("Hedef Kar", value=float(m_kar))
                             
                             if st.form_submit_button("💾 Kaydet"):
                                 sheet.update_cell(row_idx, 1, n_name)
@@ -258,28 +264,18 @@ with t1:
 # --- TAB 2: YENİ ÜRÜN EKLEME ---
 with t2:
     st.subheader("Yeni Ürün Ekle")
-    st.info("💡 Ürünler listenin en altına güvenli şekilde eklenir.")
     
     with st.form("yeni_urun_formu", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
-            u_ad = st.text_input("Ürün Adı", placeholder="Örn: 14K Altın Kolye")
+            u_ad = st.text_input("Ürün Adı", placeholder="Örn: Baget Taşlı Yüzük")
             u_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Küpe", "Bileklik", "Diğer"])
-            
-            # GELİŞMİŞ MADEN SEÇİMİ
-            maden_tipi = st.selectbox("Maden Tipi", ["Gümüş", "Altın"])
-            
-            final_maden_name = "Gümüş"
-            if maden_tipi == "Altın":
-                altin_ayar = st.selectbox("Altın Ayarı", ["14K", "18K", "22K", "24K (Has)"])
-                final_maden_name = f"Altın {altin_ayar}"
-            
-            u_gr = st.text_input("Gram (Nokta ile)", value="0.0")
+            u_gr = st.text_input("Gümüş Ağırlığı (Gr)", value="0.0")
             
         with c2:
-            u_kap = st.number_input("Kaplama (TL)", value=0.0, help="Sadece Gümüş için genelde kullanılır")
+            u_kap = st.number_input("Kaplama (TL)", value=0.0)
             u_laz = st.number_input("Lazer (TL)", value=0.0)
-            u_kar = st.number_input("Hedef Kar (TL)", value=5000.0 if maden_tipi == "Altın" else 2500.0)
+            u_kar = st.number_input("Hedef Kar (TL)", value=3000.0)
             u_img = st.file_uploader("Görsel Yükle", type=['jpg','png'])
         
         submitted = st.form_submit_button("Listeye Ekle")
@@ -288,17 +284,16 @@ with t2:
             if not u_ad:
                 st.error("Lütfen ürün adı giriniz.")
             else:
-                with st.spinner("Google Sheets'e yazılıyor..."):
+                with st.spinner("Ekleniyor..."):
                     img_str = image_to_base64(u_img)
                     
-                    # --- GÜVENLİ SATIR BULMA ---
+                    # --- GÜVENLİ EKLEME ---
                     mevcut_urunler = sheet.col_values(1)
                     son_satir_index = len(mevcut_urunler) + 1
                     
-                    # Veri Hazırlama
                     yeni_veri = [
                         u_ad, 
-                        final_maden_name, # Örn: "Altın 14K" veya "Gümüş"
+                        "Gümüş", # Varsayılan maden
                         u_gr.replace(',','.'), 
                         u_kar, 
                         img_str, 
@@ -308,11 +303,10 @@ with t2:
                         0
                     ]
                     
-                    # Kayıt
                     aralik = f"A{son_satir_index}:I{son_satir_index}"
                     sheet.update(range_name=aralik, values=[yeni_veri])
                     
-                    st.success(f"✅ '{u_ad}' ({final_maden_name}) başarıyla eklendi!")
+                    st.success(f"✅ '{u_ad}' eklendi!")
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
