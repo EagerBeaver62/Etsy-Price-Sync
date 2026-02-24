@@ -1,3 +1,14 @@
+import streamlit as st
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+import base64
+from io import BytesIO
+from PIL import Image
+import time
+
+# --- SAYFA AYARLARI ---
+# ... (Sonrasında ayarlar ve diğer kodlar gelmeli) ...
 # --- ANA EKRAN ---
 st.title("Etsy Akıllı Fiyat Paneli")
 t1, t2 = st.tabs(["📊 Ürün Listesi", "➕ Yeni Ürün Ekle"])
