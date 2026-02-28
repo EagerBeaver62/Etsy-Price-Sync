@@ -12,27 +12,34 @@ st.set_page_config(page_title="CRIPP Jewelry Panel", layout="wide")
 
 # --- GOOGLE SHEETS BAĞLANTISI ---
 def get_gspread_client():
-    # Bu kısım 'KeyError: gsheets' hatasını almamak için Secrets kısmına ihtiyaç duyar.
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     try:
         creds = Credentials.from_service_account_info(st.secrets["gsheets"], scopes=scope)
         return gspread.authorize(creds)
     except Exception as e:
-        st.error("Google Sheets bağlantı hatası! Lütfen Secrets (Sırlar) kısmını kontrol edin.")
+        st.error("Google Sheets bağlantı hatası! Lütfen Secrets kısmını kontrol edin.")
         st.stop()
 
 client = get_gspread_client()
-# E-tablo isminizin "Etsy Price Sync" olduğundan emin olun
 sheet = client.open("Etsy Price Sync").get_worksheet(0)
 
-# --- YARDIMCI FONKSİYONLAR ---
+# --- YARDIMCI FONKSİYONLAR (GÜNCELLENDİ) ---
 def image_to_base64(uploaded_file):
     if uploaded_file is not None:
-        img = Image.open(uploaded_file)
-        img.thumbnail((400, 400)) # Boyutu optimize et
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG", quality=80)
-        return base64.b64encode(buffered.getvalue()).decode()
+        try:
+            # Resmi aç ve RGB moduna çevir (Şeffaf PNG'lerdeki JPEG hatasını çözer)
+            img = Image.open(uploaded_file).convert("RGB")
+            
+            # Boyutu optimize et (Hücre limitleri için max 400px)
+            img.thumbnail((400, 400)) 
+            
+            buffered = BytesIO()
+            # Optimize edilerek kaydet
+            img.save(buffered, format="JPEG", quality=75, optimize=True)
+            return base64.b64encode(buffered.getvalue()).decode()
+        except Exception as e:
+            st.error(f"Görsel işlenirken hata oluştu: {e}")
+            return ""
     return ""
 
 def safe_float(value, default=0.0):
@@ -46,11 +53,10 @@ def safe_float(value, default=0.0):
 data = sheet.get_all_records()
 df = pd.DataFrame(data)
 
-# Boş satırları filtrele (Ürün ismi boş olanları gösterme)
 if not df.empty:
     df = df[df['Ürün'].astype(str).str.strip() != ""]
 
-# --- SIDEBAR (AYARLAR) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("💎 Fiyat Ayarları")
     dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=43.76, step=0.01)
@@ -75,15 +81,12 @@ with t1:
     search = st.text_input("🔍 Ürün ismi ile ara...", placeholder="Yüzük, Kolye vb.")
     
     if not df.empty:
-        # Arama filtresi
         f_df = df[df['Ürün'].str.contains(search, case=False, na=False)] if search else df
         
         cols = st.columns(4)
         for idx, row in f_df.reset_index().iterrows():
-            # Satır numarasını bul (Header+1 ve index)
             row_idx = int(row['index']) + 2
             
-            # Değerleri al
             gr = safe_float(row.get('Gr'))
             kar = safe_float(row.get('Hedef Kar'))
             kaplama = safe_float(row.get('KaplamaTL'))
@@ -91,14 +94,11 @@ with t1:
             mine = safe_float(row.get('MineTL'))
             img_data = row.get('GörselData', '')
 
-            # --- HESAPLAMA MOTORU ---
+            # --- HESAPLAMA ---
             komisyon = 0.17 + (indirim_yuzde / 100)
-            
-            # Gümüş Fiyatı
             g_maliyet_tl = ((gr * (gumus_gram_usd + iscilik_gumus)) * dolar_kuru) + kaplama + lazer + mine + kargo_tl
             fiyat_gumus = (g_maliyet_tl + kar) / (1 - komisyon)
             
-            # 14K Altın Fiyatı (Ağırlık çarpanı: 1.35)
             a_maliyet_tl = ((gr * 1.35 * ((altin_has_gram_usd * 0.585) + iscilik_altin)) * dolar_kuru) + lazer + mine + kargo_tl
             fiyat_altin = (a_maliyet_tl + (kar * 1.5)) / (1 - komisyon)
 
@@ -113,27 +113,23 @@ with t1:
                     <div style="background:#fffcf0; padding:8px; border-radius:8px;">
                         <span style="color:#f39c12; font-weight:bold; font-size:18px;">{fiyat_altin:,.0f} ₺</span><br><small>🟡 14K Altın</small>
                     </div>
-                    <p style="font-size:10px; color:gray; margin-top:8px;">⚖️ {gr}gr | 🎯 {kar}₺ Kar</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 c1, c2 = st.columns(2)
-                if c1.button("✏️ Düzenle", key=f"btn_ed_{idx}"):
+                if c1.button("✏️", key=f"ed_{idx}"):
                     st.session_state[f"edit_{idx}"] = True
-                if c2.button("🗑️ Sil", key=f"btn_del_{idx}"):
+                if c2.button("🗑️", key=f"del_{idx}"):
                     sheet.delete_rows(row_idx)
-                    st.success("Silindi!")
-                    time.sleep(1)
                     st.rerun()
                 
                 if st.session_state.get(f"edit_{idx}"):
-                    with st.form(f"form_ed_{idx}"):
+                    with st.form(f"form_{idx}"):
                         new_ad = st.text_input("Ad", value=row['Ürün'])
                         new_gr = st.number_input("Gram", value=gr)
                         new_kar = st.number_input("Kar", value=kar)
-                        new_mine = st.number_input("Mine (TL)", value=mine)
-                        if st.form_submit_button("Kaydet"):
-                            # A-I arası 9 sütunu güncelle
+                        new_mine = st.number_input("Mine", value=mine)
+                        if st.form_submit_button("Güncelle"):
                             updated_vals = [new_ad, row['Maden'], new_gr, new_kar, img_data, row['Kategori'], kaplama, lazer, new_mine]
                             sheet.update(f"A{row_idx}:I{row_idx}", [updated_vals])
                             st.session_state[f"edit_{idx}"] = False
@@ -150,21 +146,17 @@ with t2:
         with c2:
             u_mine = st.number_input("Mine Bedeli (TL)", value=0)
             u_kap = st.number_input("Kaplama Bedeli (TL)", value=0)
-            u_img = st.file_uploader("Görsel", type=['jpg','png','jpeg'])
+            u_img = st.file_uploader("Görsel (JPG/PNG)", type=['jpg','png','jpeg'])
         
         if st.form_submit_button("➕ Listeye Ekle"):
-            if u_ad:
+            if u_ad and u_img:
                 img_b64 = image_to_base64(u_img)
-                # Ürün kaybolmasını önleyen güvenli satır bulma
                 all_names = sheet.col_values(1)
                 next_row = len(all_names) + 1
-                
-                # Sütun sırası: Ürün, Maden, Gr, Hedef Kar, GörselData, Kategori, KaplamaTL, LazerTL, MineTL
                 yeni_row = [u_ad, "Gümüş", u_gr, u_kar, img_b64, "Yüzük", u_kap, 0, u_mine]
                 sheet.update(f"A{next_row}:I{next_row}", [yeni_row])
-                
-                st.success(f"{u_ad} başarıyla eklendi!")
+                st.success("Eklendi!")
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("Ürün adı girmelisiniz!")
+                st.error("Ad ve Görsel zorunludur!")
