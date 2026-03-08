@@ -37,11 +37,10 @@ def image_to_base64(uploaded_file):
             return ""
     return ""
 
-# GÜNCELLENEN FONKSİYYON: Virgül ve Nokta karmaşasını çözer
 def safe_float(value, default=0.0):
     try:
         if value is None or value == "": return default
-        # Virgülü noktaya çevirerek sayıya dönüştür
+        # Hem virgülü hem noktayı temizleyip standart formata çevirir
         val_str = str(value).replace(",", ".")
         return float(val_str)
     except:
@@ -54,23 +53,25 @@ def edit_product_modal(row_data, row_idx):
         new_ad = st.text_input("Ürün Adı", value=row_data['Ürün'])
         c1, c2 = st.columns(2)
         with c1:
-            # step=0.01 ekleyerek ondalıklı girişi zorunlu kıldık
-            new_gr = st.number_input("Gram", value=safe_float(row_data.get('Gr')), step=0.01, format="%.2f")
-            new_kar = st.number_input("Hedef Kar (TL)", value=safe_float(row_data.get('Hedef Kar')), step=10.0)
-            new_mine = st.number_input("Mine Bedeli (TL)", value=safe_float(row_data.get('MineTL')), step=10.0)
+            # HATAYI ÖNLEYEN DEĞİŞİKLİK: Gramaj girişi artık serbest metin kutusu
+            new_gr_raw = st.text_input("Gram (Örn: 5.7 veya 5,7)", value=str(row_data.get('Gr')).replace(".", ","))
+            new_kar = st.number_input("Hedef Kar (TL)", value=safe_float(row_data.get('Hedef Kar')))
+            new_mine = st.number_input("Mine Bedeli (TL)", value=safe_float(row_data.get('MineTL')))
         with c2:
-            new_kaplama = st.number_input("Kaplama Bedeli (TL)", value=safe_float(row_data.get('KaplamaTL')), step=10.0)
-            new_lazer = st.number_input("Lazer Bedeli (TL)", value=safe_float(row_data.get('LazerTL')), step=10.0)
+            new_kaplama = st.number_input("Kaplama Bedeli (TL)", value=safe_float(row_data.get('KaplamaTL')))
+            new_lazer = st.number_input("Lazer Bedeli (TL)", value=safe_float(row_data.get('LazerTL')))
             new_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Bileklik", "Küpe"], 
                                  index=["Yüzük", "Kolye", "Bileklik", "Küpe"].index(row_data.get('Kategori', 'Yüzük')))
         
         if st.form_submit_button("✅ Değişiklikleri Kaydet"):
+            # Metin olarak gelen gramajı sayıya çeviriyoruz
+            new_gr = safe_float(new_gr_raw)
             updated_row = [
                 new_ad, row_data['Maden'], new_gr, new_kar, 
                 row_data['GörselData'], new_kat, new_kaplama, new_lazer, new_mine
             ]
             sheet.update(f"A{row_idx}:I{row_idx}", [updated_row])
-            st.success("Ürün güncellendi!")
+            st.success(f"Güncellendi: {new_gr} gr")
             time.sleep(0.5)
             st.rerun()
 
@@ -84,19 +85,20 @@ if not df.empty:
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("💎 Fiyat Ayarları")
-    dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=44.07, step=0.01, format="%.2f")
+    dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=44.07, step=0.01)
     
     st.markdown("### 🥈 Gümüş Ayarları")
-    gumus_gram_tl = st.number_input("Gümüş Has Gram (TL)", value=125.60, step=0.10, format="%.2f") 
-    iscilik_gumus_usd = st.number_input("Gümüş İşçilik ($/gr)", value=1.50, step=0.10, format="%.2f")
+    # Harem Altın verisi girişi
+    gumus_gram_tl = st.number_input("Gümüş Has Gram (TL)", value=125.60, step=0.50) 
+    iscilik_gumus_usd = st.number_input("Gümüş İşçilik ($/gr)", value=1.50)
     
     st.markdown("### 🟡 14K Altın Ayarları")
-    altin_has_gram_usd = st.number_input("Has Altın Gram ($)", value=85.00, step=1.0)
-    iscilik_altin = st.number_input("Altın İşçilik ($/gr)", value=10.00, step=1.0)
+    altin_has_gram_usd = st.number_input("Has Altın Gram ($)", value=85.00)
+    iscilik_altin = st.number_input("Altın İşçilik ($/gr)", value=10.00)
     
     st.markdown("---")
-    kargo_tl = st.number_input("🚚 Kargo (TL)", value=650.0, step=10.0)
-    indirim_yuzde = st.number_input("🏷️ Etsy İndirim (%)", value=15.0, step=1.0)
+    kargo_tl = st.number_input("🚚 Kargo (TL)", value=650.0)
+    indirim_yuzde = st.number_input("🏷️ Etsy İndirim (%)", value=15.0)
 
 # --- ANA EKRAN ---
 st.title("Etsy Akıllı Fiyat Paneli")
@@ -139,7 +141,6 @@ with t1:
                     <div style="background:#fffcf0; padding:8px; border-radius:8px;">
                         <span style="color:#f39c12; font-weight:bold; font-size:18px;">{fiyat_altin:,.0f} ₺</span><br><small>🟡 14K Altın</small>
                     </div>
-                    <div style="font-size:11px; color:#7f8c8d; margin-top:5px;">⚖️ {gr}gr | 🎯 {kar:,.0f}₺ Kar</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -157,17 +158,19 @@ with t2:
         c1, c2 = st.columns(2)
         with c1:
             u_ad = st.text_input("Ürün Adı")
-            u_gr = st.number_input("Gram", value=0.0, step=0.01, format="%.2f")
-            u_kar = st.number_input("Hedef Kar (TL)", value=3000, step=100)
+            # YENİ ÜRÜN EKLEME KISMINDA DA GRAMAJI METİN YAPTIK
+            u_gr_raw = st.text_input("Gram (Örn: 5.7)")
+            u_kar = st.number_input("Hedef Kar (TL)", value=3000)
             u_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Bileklik", "Küpe"])
         with c2:
-            u_mine = st.number_input("Mine Bedeli (TL)", value=0, step=10)
-            u_kap = st.number_input("Kaplama Bedeli (TL)", value=0, step=10)
-            u_lazer = st.number_input("Lazer Bedeli (TL)", value=0, step=10)
-            u_img = st.file_uploader("Ürün Görseli (JPG/PNG)", type=['jpg','png','jpeg'])
+            u_mine = st.number_input("Mine Bedeli (TL)", value=0)
+            u_kap = st.number_input("Kaplama Bedeli (TL)", value=0)
+            u_lazer = st.number_input("Lazer Bedeli (TL)", value=0)
+            u_img = st.file_uploader("Ürün Görseli", type=['jpg','png','jpeg'])
         
         if st.form_submit_button("➕ Ürünü Sisteme Kaydet"):
             if u_ad and u_img:
+                u_gr = safe_float(u_gr_raw) # Sayıya güvenli çeviri
                 img_b64 = image_to_base64(u_img)
                 all_names = sheet.col_values(1)
                 next_row = len(all_names) + 1
@@ -175,7 +178,7 @@ with t2:
                 yeni_row = [u_ad, "Gümüş", u_gr, u_kar, img_b64, u_kat, u_kap, u_lazer, u_mine]
                 sheet.update(f"A{next_row}:I{next_row}", [yeni_row])
                 
-                st.success(f"{u_ad} başarıyla eklendi!")
+                st.success(f"{u_ad} ({u_gr} gr) eklendi!")
                 time.sleep(1)
                 st.rerun()
             else:
