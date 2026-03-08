@@ -6,163 +6,63 @@ import base64
 from io import BytesIO
 from PIL import Image
 import time
+import requests
 
 st.set_page_config(page_title="CRIPP Jewelry Panel", layout="wide")
 
-
-# GOOGLE SHEETS
+# ================= GOOGLE SHEETS =================
 def get_gspread_client():
-
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-
     creds = Credentials.from_service_account_info(
         st.secrets["gsheets"],
         scopes=scope
     )
-
     return gspread.authorize(creds)
-
 
 client = get_gspread_client()
 sheet = client.open("Etsy Price Sync").get_worksheet(0)
 
-
-# FLOAT DÖNÜŞÜM
+# ================= HELPER =================
 def safe_float(value):
-
     try:
-
-        if value is None:
-            return 0
-
-        value = str(value)
-
-        value = value.replace(",", ".")
-
-        return float(value)
-
+        return float(str(value).replace(",", "."))
     except:
         return 0
 
-
-# IMAGE
 def image_to_base64(uploaded_file):
-
     if uploaded_file is None:
         return ""
-
     img = Image.open(uploaded_file).convert("RGB")
-
     img.thumbnail((400, 400))
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=75)
+    return base64.b64encode(buf.getvalue()).decode()
 
-    buffer = BytesIO()
+# ================= METAL API =================
+def get_metal_price():
+    try:
+        r = requests.get("https://api.metals.live/v1/spot/gold")
+        gold_price = r.json()[0]["price"]
+        return gold_price
+    except:
+        return None
 
-    img.save(buffer, format="JPEG", quality=75)
-
-    return base64.b64encode(buffer.getvalue()).decode()
-
-
-# MODAL
-@st.dialog("Ürün Düzenle")
-def edit_product_modal(row_data, row_idx):
-
-    with st.form(f"edit_{row_idx}"):
-
-        new_ad = st.text_input(
-            "Ürün Adı",
-            value=row_data["Ürün"]
-        )
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            new_gr = st.number_input(
-                "Gram",
-                value=float(safe_float(row_data.get("Gr"))),
-                step=0.1,
-                format="%.2f"
-            )
-
-            new_kar = st.number_input(
-                "Hedef Kar",
-                value=float(safe_float(row_data.get("Hedef Kar")))
-            )
-
-            new_mine = st.number_input(
-                "Mine TL",
-                value=float(safe_float(row_data.get("MineTL")))
-            )
-
-        with c2:
-
-            new_kaplama = st.number_input(
-                "Kaplama TL",
-                value=float(safe_float(row_data.get("KaplamaTL")))
-            )
-
-            new_lazer = st.number_input(
-                "Lazer TL",
-                value=float(safe_float(row_data.get("LazerTL")))
-            )
-
-            new_kat = st.selectbox(
-                "Kategori",
-                ["Yüzük", "Kolye", "Bileklik", "Küpe"],
-                index=0
-            )
-
-        if st.form_submit_button("Kaydet"):
-
-            updated_row = [
-
-                new_ad,
-                row_data["Maden"],
-                new_gr,
-                new_kar,
-                row_data["GörselData"],
-                new_kat,
-                new_kaplama,
-                new_lazer,
-                new_mine
-
-            ]
-
-            sheet.update(
-                f"A{row_idx}:I{row_idx}",
-                [updated_row],
-                value_input_option="USER_ENTERED"
-            )
-
-            st.success("Güncellendi")
-
-            time.sleep(0.5)
-
-            st.rerun()
-
-
-# DATA
+# ================= DATA =================
 data = sheet.get_all_records()
-
 df = pd.DataFrame(data)
 
 if not df.empty:
-
     df = df[df["Ürün"].astype(str).str.strip() != ""]
 
-
-# SIDEBAR
+# ================= SIDEBAR =================
 with st.sidebar:
 
     st.title("💎 Fiyat Ayarları")
 
-    dolar_kuru = st.number_input(
-        "Dolar Kuru",
-        value=44.07
-    )
+    dolar_kuru = st.number_input("Dolar Kuru", value=44.07)
 
     st.subheader("Gümüş")
 
@@ -190,24 +90,59 @@ with st.sidebar:
 
     st.markdown("---")
 
-    kargo_tl = st.number_input(
-        "Kargo",
-        value=650.0
+    kargo_tl = st.number_input("Kargo", value=650.0)
+
+    indirim_yuzde = st.number_input("Etsy indirim %", value=15.0)
+
+    st.markdown("---")
+
+    st.subheader("Kar Simülasyonu")
+
+    kar_multiplier = st.slider(
+        "Kar çarpanı",
+        1.0,
+        3.0,
+        1.0,
+        0.1
     )
 
-    indirim_yuzde = st.number_input(
-        "Etsy indirim %",
-        value=15.0
+    st.markdown("---")
+
+    st.subheader("Toplu Güncelleme")
+
+    toplu_artis = st.number_input(
+        "Kar Artışı TL",
+        value=0
     )
 
+    kategori_sec = st.selectbox(
+        "Kategori",
+        ["Hepsi","Yüzük","Kolye","Bileklik","Küpe"]
+    )
 
-# ANA PANEL
+# ================= ETSY KAR =================
+def calculate_profit(sale_price_tl, cost_tl):
+
+    usd_price = sale_price_tl / dolar_kuru
+
+    etsy_fee = usd_price * 0.065
+    payment_fee = usd_price * 0.03 + 0.25
+    listing_fee = 0.20
+
+    total_fee_usd = etsy_fee + payment_fee + listing_fee
+
+    total_fee_tl = total_fee_usd * dolar_kuru
+
+    net_profit = sale_price_tl - total_fee_tl - cost_tl
+
+    return net_profit
+
+# ================= PANEL =================
 st.title("Etsy Akıllı Fiyat Paneli")
 
 tab1, tab2 = st.tabs(["Ürün Listesi", "Yeni Ürün"])
 
-
-# LISTE
+# ================= LIST =================
 with tab1:
 
     search = st.text_input("Ürün Ara")
@@ -215,11 +150,8 @@ with tab1:
     if not df.empty:
 
         if search:
-
             f_df = df[df["Ürün"].str.contains(search, case=False)]
-
         else:
-
             f_df = df
 
         cols = st.columns(4)
@@ -230,7 +162,7 @@ with tab1:
 
             gr = safe_float(row.get("Gr"))
 
-            kar = safe_float(row.get("Hedef Kar"))
+            kar = safe_float(row.get("Hedef Kar")) * kar_multiplier
 
             kaplama = safe_float(row.get("KaplamaTL"))
 
@@ -238,32 +170,31 @@ with tab1:
 
             mine = safe_float(row.get("MineTL"))
 
+            if kategori_sec != "Hepsi":
+                if row["Kategori"] != kategori_sec:
+                    continue
+
+            kar += toplu_artis
+
             komisyon = 0.17 + (indirim_yuzde / 100)
 
             g_maliyet = (
-
                 (gr * gumus_gram_tl)
                 + (gr * iscilik_gumus_usd * dolar_kuru)
                 + kaplama
                 + lazer
                 + mine
                 + kargo_tl
-
             )
 
             fiyat_gumus = (g_maliyet + kar) / (1 - komisyon)
 
-            a_maliyet = (
+            usd_price = fiyat_gumus / dolar_kuru
 
-                (gr * 1.35 * ((altin_has_gram_usd * 0.585) + iscilik_altin))
-                * dolar_kuru
-                + lazer
-                + mine
-                + kargo_tl
-
+            net_profit = calculate_profit(
+                fiyat_gumus,
+                g_maliyet
             )
-
-            fiyat_altin = (a_maliyet + (kar * 1.5)) / (1 - komisyon)
 
             with cols[idx % 4]:
 
@@ -275,24 +206,24 @@ with tab1:
 
                 st.success(f"Gümüş: {round(fiyat_gumus)} ₺")
 
-                st.warning(f"14K Altın: {round(fiyat_altin)} ₺")
+                st.info(f"${round(usd_price,2)}")
 
-                st.caption(f"{gr} gr | {kar}₺ kar")
+                if net_profit < 0:
+                    st.error(f"Zarar: {round(net_profit)} ₺")
+                else:
+                    st.caption(f"Net Kar: {round(net_profit)} ₺")
+
+                st.caption(f"{gr} gr")
 
                 c1, c2 = st.columns(2)
 
-                if c1.button("Düzenle", key=f"edit{idx}"):
-
-                    edit_product_modal(row, row_idx)
-
-                if c2.button("Sil", key=f"del{idx}"):
+                if c1.button("Sil", key=f"del{idx}"):
 
                     sheet.delete_rows(row_idx)
 
                     st.rerun()
 
-
-# YENI URUN
+# ================= NEW =================
 with tab2:
 
     with st.form("new_product"):
@@ -309,7 +240,10 @@ with tab2:
             value=3000
         )
 
-        img = st.file_uploader("Foto", type=["jpg","jpeg","png"])
+        img = st.file_uploader(
+            "Foto",
+            type=["jpg","jpeg","png"]
+        )
 
         if st.form_submit_button("Kaydet"):
 
