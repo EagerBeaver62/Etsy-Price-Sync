@@ -6,58 +6,69 @@ import base64
 from io import BytesIO
 from PIL import Image
 import time
-import requests
 
 st.set_page_config(page_title="CRIPP Jewelry Panel", layout="wide")
 
 # ================= GOOGLE SHEETS =================
+
 def get_gspread_client():
+
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
+
     creds = Credentials.from_service_account_info(
         st.secrets["gsheets"],
         scopes=scope
     )
+
     return gspread.authorize(creds)
+
 
 client = get_gspread_client()
 sheet = client.open("Etsy Price Sync").get_worksheet(0)
 
+
 # ================= HELPER =================
+
 def safe_float(value):
+
     try:
         return float(str(value).replace(",", "."))
     except:
         return 0
 
+
 def image_to_base64(uploaded_file):
+
     if uploaded_file is None:
         return ""
+
     img = Image.open(uploaded_file).convert("RGB")
+
     img.thumbnail((400, 400))
+
     buf = BytesIO()
+
     img.save(buf, format="JPEG", quality=75)
+
     return base64.b64encode(buf.getvalue()).decode()
 
-# ================= METAL API =================
-def get_metal_price():
-    try:
-        r = requests.get("https://api.metals.live/v1/spot/gold")
-        gold_price = r.json()[0]["price"]
-        return gold_price
-    except:
-        return None
 
 # ================= DATA =================
+
 data = sheet.get_all_records()
+
 df = pd.DataFrame(data)
 
 if not df.empty:
+
     df = df[df["Ürün"].astype(str).str.strip() != ""]
 
+
 # ================= SIDEBAR =================
+
 with st.sidebar:
 
     st.title("💎 Fiyat Ayarları")
@@ -99,50 +110,125 @@ with st.sidebar:
     st.subheader("Kar Simülasyonu")
 
     kar_multiplier = st.slider(
-        "Kar çarpanı",
+        "Kar Çarpanı",
         1.0,
         3.0,
         1.0,
         0.1
     )
 
-    st.markdown("---")
+    st.subheader("Toplu Kar Artışı")
 
-    st.subheader("Toplu Güncelleme")
-
-    toplu_artis = st.number_input(
-        "Kar Artışı TL",
+    toplu_kar = st.number_input(
+        "TL",
         value=0
     )
 
-    kategori_sec = st.selectbox(
+    kategori_filtre = st.selectbox(
         "Kategori",
         ["Hepsi","Yüzük","Kolye","Bileklik","Küpe"]
     )
 
+
 # ================= ETSY KAR =================
-def calculate_profit(sale_price_tl, cost_tl):
 
-    usd_price = sale_price_tl / dolar_kuru
+def etsy_net_profit(price_tl, cost_tl):
 
-    etsy_fee = usd_price * 0.065
-    payment_fee = usd_price * 0.03 + 0.25
+    usd = price_tl / dolar_kuru
+
+    etsy_fee = usd * 0.065
+    payment_fee = usd * 0.03 + 0.25
     listing_fee = 0.20
 
-    total_fee_usd = etsy_fee + payment_fee + listing_fee
+    total_fee = (etsy_fee + payment_fee + listing_fee) * dolar_kuru
 
-    total_fee_tl = total_fee_usd * dolar_kuru
+    return price_tl - total_fee - cost_tl
 
-    net_profit = sale_price_tl - total_fee_tl - cost_tl
 
-    return net_profit
+# ================= EDIT MODAL =================
+
+@st.dialog("Ürün Düzenle")
+
+def edit_product(row, row_idx):
+
+    with st.form("edit_form"):
+
+        ad = st.text_input("Ürün Adı", value=row["Ürün"])
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+
+            gram = st.number_input(
+                "Gram",
+                value=float(safe_float(row["Gr"])),
+                step=0.1
+            )
+
+            kar = st.number_input(
+                "Hedef Kar",
+                value=float(safe_float(row["Hedef Kar"]))
+            )
+
+            mine = st.number_input(
+                "Mine TL",
+                value=float(safe_float(row.get("MineTL")))
+            )
+
+        with c2:
+
+            kaplama = st.number_input(
+                "Kaplama TL",
+                value=float(safe_float(row.get("KaplamaTL")))
+            )
+
+            lazer = st.number_input(
+                "Lazer TL",
+                value=float(safe_float(row.get("LazerTL")))
+            )
+
+            ekstra = st.number_input(
+                "Ekstra Gider",
+                value=float(safe_float(row.get("EkstraTL")))
+            )
+
+        if st.form_submit_button("Kaydet"):
+
+            updated = [
+                ad,
+                "Gümüş",
+                gram,
+                kar,
+                row["GörselData"],
+                row["Kategori"],
+                kaplama,
+                lazer,
+                mine,
+                ekstra
+            ]
+
+            sheet.update(
+                f"A{row_idx}:J{row_idx}",
+                [updated],
+                value_input_option="USER_ENTERED"
+            )
+
+            st.success("Güncellendi")
+
+            time.sleep(0.5)
+
+            st.rerun()
+
 
 # ================= PANEL =================
-st.title("Etsy Akıllı Fiyat Paneli")
 
-tab1, tab2 = st.tabs(["Ürün Listesi", "Yeni Ürün"])
+st.title("💎 CRIPP Etsy Fiyat Paneli")
 
-# ================= LIST =================
+tab1, tab2 = st.tabs(["📦 Ürünler", "➕ Yeni Ürün"])
+
+
+# ================= ÜRÜNLER =================
+
 with tab1:
 
     search = st.text_input("Ürün Ara")
@@ -150,8 +236,11 @@ with tab1:
     if not df.empty:
 
         if search:
+
             f_df = df[df["Ürün"].str.contains(search, case=False)]
+
         else:
+
             f_df = df
 
         cols = st.columns(4)
@@ -160,9 +249,14 @@ with tab1:
 
             row_idx = int(row["index"]) + 2
 
-            gr = safe_float(row.get("Gr"))
+            if kategori_filtre != "Hepsi":
 
-            kar = safe_float(row.get("Hedef Kar")) * kar_multiplier
+                if row["Kategori"] != kategori_filtre:
+                    continue
+
+            gr = safe_float(row["Gr"])
+
+            kar = safe_float(row["Hedef Kar"]) * kar_multiplier + toplu_kar
 
             kaplama = safe_float(row.get("KaplamaTL"))
 
@@ -170,65 +264,101 @@ with tab1:
 
             mine = safe_float(row.get("MineTL"))
 
-            if kategori_sec != "Hepsi":
-                if row["Kategori"] != kategori_sec:
-                    continue
-
-            kar += toplu_artis
+            ekstra = safe_float(row.get("EkstraTL"))
 
             komisyon = 0.17 + (indirim_yuzde / 100)
 
-            g_maliyet = (
+            maliyet = (
                 (gr * gumus_gram_tl)
                 + (gr * iscilik_gumus_usd * dolar_kuru)
                 + kaplama
                 + lazer
                 + mine
+                + ekstra
                 + kargo_tl
             )
 
-            fiyat_gumus = (g_maliyet + kar) / (1 - komisyon)
+            fiyat = (maliyet + kar) / (1 - komisyon)
 
-            usd_price = fiyat_gumus / dolar_kuru
+            usd = fiyat / dolar_kuru
 
-            net_profit = calculate_profit(
-                fiyat_gumus,
-                g_maliyet
-            )
+            net = etsy_net_profit(fiyat, maliyet)
 
             with cols[idx % 4]:
 
-                st.image(
-                    f"data:image/jpeg;base64,{row['GörselData']}"
-                )
+                st.markdown(f"""
+                <div style="
+                border:1px solid #eee;
+                border-radius:14px;
+                padding:15px;
+                background:white;
+                box-shadow:0 4px 12px rgba(0,0,0,0.06);
+                text-align:center;
+                ">
 
-                st.write(row["Ürün"])
+                <img src="data:image/jpeg;base64,{row['GörselData']}"
+                style="width:100%;height:200px;object-fit:contain;border-radius:10px">
 
-                st.success(f"Gümüş: {round(fiyat_gumus)} ₺")
+                <h4 style="margin-top:10px">{row['Ürün']}</h4>
 
-                st.info(f"${round(usd_price,2)}")
+                <div style="
+                background:#f1f8f6;
+                padding:8px;
+                border-radius:8px;
+                margin-bottom:5px;
+                color:#2ecc71;
+                font-weight:bold">
+                {round(fiyat)} ₺
+                </div>
 
-                if net_profit < 0:
-                    st.error(f"Zarar: {round(net_profit)} ₺")
+                <div style="
+                background:#fef6e4;
+                padding:6px;
+                border-radius:8px;
+                font-weight:bold">
+                ${round(usd,2)}
+                </div>
+
+                <div style="font-size:12px;color:gray;margin-top:5px">
+                ⚖ {gr} gr
+                </div>
+
+                </div>
+                """, unsafe_allow_html=True)
+
+                if net < 0:
+
+                    st.error(f"Zarar: {round(net)} ₺")
+
                 else:
-                    st.caption(f"Net Kar: {round(net_profit)} ₺")
 
-                st.caption(f"{gr} gr")
+                    st.caption(f"Net Kar: {round(net)} ₺")
 
                 c1, c2 = st.columns(2)
 
-                if c1.button("Sil", key=f"del{idx}"):
+                if c1.button("✏️ Düzenle", key=f"edit{idx}"):
+
+                    edit_product(row, row_idx)
+
+                if c2.button("🗑️ Sil", key=f"del{idx}"):
 
                     sheet.delete_rows(row_idx)
 
                     st.rerun()
 
-# ================= NEW =================
+
+# ================= YENİ ÜRÜN =================
+
 with tab2:
 
     with st.form("new_product"):
 
         ad = st.text_input("Ürün Adı")
+
+        kategori = st.selectbox(
+            "Kategori",
+            ["Yüzük","Kolye","Bileklik","Küpe"]
+        )
 
         gram = st.number_input(
             "Gram",
@@ -236,12 +366,20 @@ with tab2:
         )
 
         kar = st.number_input(
-            "Kar",
+            "Hedef Kar",
             value=3000
         )
 
+        mine = st.number_input("Mine TL", value=0)
+
+        kaplama = st.number_input("Kaplama TL", value=0)
+
+        lazer = st.number_input("Lazer TL", value=0)
+
+        ekstra = st.number_input("Ekstra Gider", value=0)
+
         img = st.file_uploader(
-            "Foto",
+            "Görsel",
             type=["jpg","jpeg","png"]
         )
 
@@ -256,10 +394,11 @@ with tab2:
                     gram,
                     kar,
                     img64,
-                    "Yüzük",
-                    0,
-                    0,
-                    0
+                    kategori,
+                    kaplama,
+                    lazer,
+                    mine,
+                    ekstra
                 ],
                 value_input_option="USER_ENTERED"
             )
