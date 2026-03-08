@@ -51,7 +51,7 @@ def edit_product_modal(row_data, row_idx):
         new_ad = st.text_input("Ürün Adı", value=row_data['Ürün'])
         c1, c2 = st.columns(2)
         with c1:
-            new_gr = st.number_input("Gümüş Gram", value=safe_float(row_data.get('Gr')))
+            new_gr = st.number_input("Gram", value=safe_float(row_data.get('Gr')))
             new_kar = st.number_input("Hedef Kar (TL)", value=safe_float(row_data.get('Hedef Kar')))
             new_mine = st.number_input("Mine Bedeli (TL)", value=safe_float(row_data.get('MineTL')))
         with c2:
@@ -61,8 +61,6 @@ def edit_product_modal(row_data, row_idx):
                                  index=["Yüzük", "Kolye", "Bileklik", "Küpe"].index(row_data.get('Kategori', 'Yüzük')))
         
         if st.form_submit_button("✅ Değişiklikleri Kaydet"):
-            # A'dan I'ya tüm sütunları güncelle (9 sütun)
-            # Sıra: Ürün, Maden, Gr, Hedef Kar, GörselData, Kategori, KaplamaTL, LazerTL, MineTL
             updated_row = [
                 new_ad, row_data['Maden'], new_gr, new_kar, 
                 row_data['GörselData'], new_kat, new_kaplama, new_lazer, new_mine
@@ -79,14 +77,15 @@ df = pd.DataFrame(data)
 if not df.empty:
     df = df[df['Ürün'].astype(str).str.strip() != ""]
 
-# --- SIDEBAR ---
+# --- SIDEBAR (GÜNCELLENEN KISIM) ---
 with st.sidebar:
     st.title("💎 Fiyat Ayarları")
     dolar_kuru = st.number_input("💵 Dolar Kuru (TL)", value=43.76, step=0.01)
     
     st.markdown("### 🥈 Gümüş Ayarları")
-    gumus_gram_usd = st.number_input("Gümüş Gram ($)", value=1.05, format="%.3f")
-    iscilik_gumus = st.number_input("Gümüş İşçilik ($/gr)", value=1.50)
+    # BURASI DEĞİŞTİ: Harem Altın'daki TL bazlı Has Gümüş fiyatı için:
+    gumus_gram_tl = st.number_input("Gümüş Has Gram (TL)", value=38.50, step=0.50) 
+    iscilik_gumus_usd = st.number_input("Gümüş İşçilik ($/gr)", value=1.50)
     
     st.markdown("### 🟡 14K Altın Ayarları")
     altin_has_gram_usd = st.number_input("Has Altın Gram ($)", value=85.00)
@@ -117,11 +116,14 @@ with t1:
             mine = safe_float(row.get('MineTL'))
             img_data = row.get('GörselData', '')
 
-            # --- HESAPLAMA ---
+            # --- HESAPLAMA MOTORU (GÜNCELLENDİ) ---
             komisyon = 0.17 + (indirim_yuzde / 100)
-            g_maliyet_tl = ((gr * (gumus_gram_usd + iscilik_gumus)) * dolar_kuru) + kaplama + lazer + mine + kargo_tl
+            
+            # YENİ GÜMÜŞ HESAPLAMASI: (Has Gram TL * Gram) + (İşçilik USD * Dolar Kuru * Gram) + Ekstralar
+            g_maliyet_tl = (gr * gumus_gram_tl) + (gr * iscilik_gumus_usd * dolar_kuru) + kaplama + lazer + mine + kargo_tl
             fiyat_gumus = (g_maliyet_tl + kar) / (1 - komisyon)
             
+            # Altın Hesaplaması (Sabit kaldı)
             a_maliyet_tl = ((gr * 1.35 * ((altin_has_gram_usd * 0.585) + iscilik_altin)) * dolar_kuru) + lazer + mine + kargo_tl
             fiyat_altin = (a_maliyet_tl + (kar * 1.5)) / (1 - komisyon)
 
@@ -153,7 +155,7 @@ with t2:
         c1, c2 = st.columns(2)
         with c1:
             u_ad = st.text_input("Ürün Adı")
-            u_gr = st.number_input("Gümüş Gram", value=0.0)
+            u_gr = st.number_input("Gram", value=0.0)
             u_kar = st.number_input("Hedef Kar (TL)", value=3000)
             u_kat = st.selectbox("Kategori", ["Yüzük", "Kolye", "Bileklik", "Küpe"])
         with c2:
@@ -168,7 +170,6 @@ with t2:
                 all_names = sheet.col_values(1)
                 next_row = len(all_names) + 1
                 
-                # Sütun sırası: Ürün, Maden, Gr, Hedef Kar, GörselData, Kategori, KaplamaTL, LazerTL, MineTL
                 yeni_row = [u_ad, "Gümüş", u_gr, u_kar, img_b64, u_kat, u_kap, u_lazer, u_mine]
                 sheet.update(f"A{next_row}:I{next_row}", [yeni_row])
                 
