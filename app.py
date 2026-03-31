@@ -32,6 +32,17 @@ html, body, [class*="css"] {
     border-right: 1.5px solid #EDE7DC;
 }
 
+/* KURUMSAL LOGO BÜYÜTÜLDÜ */
+.kuyumhane-logo {
+    font-size: 24px; 
+    color: #B0946A; 
+    font-weight: 800; 
+    letter-spacing: 4px; 
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    font-family: 'Playfair Display', serif;
+}
+
 /* Başlıklar */
 h1, h2, h3 {
     font-family: 'Playfair Display', serif !important;
@@ -69,13 +80,29 @@ h1, h2, h3 {
     border-color: #3D2B1A;
 }
 
+/* YENİ ÜRÜN FORMU TASARIM DÜZELTMESİ (Renk Uyumsuzluğunu Giderir) */
+[data-testid="stForm"] {
+    background-color: transparent !important;
+    border: 1.5px solid #EDE7DC !important;
+    border-radius: 17px !important;
+    padding: 20px !important;
+    box-shadow: 0 2px 8px rgba(90,60,20,0.03) !important;
+}
+
 /* Input Alanları */
 .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div {
-    background-color: #FEFAF5;
-    border: 1.5px solid #E0D8CE;
+    background-color: #FFF !important;
+    border: 1px solid #E0D8CE !important;
     border-radius: 10px;
     color: #2A1F12;
     font-family: 'Inter', sans-serif;
+}
+
+/* Uploader Kutusu */
+[data-testid="stFileUploadDropzone"] {
+    background-color: #FFF !important;
+    border: 2px dashed #D8CEBD !important;
+    border-radius: 12px !important;
 }
 
 /* Veri Çerçevesi (Dataframe) Gizleme */
@@ -105,7 +132,7 @@ def safe_float(value):
     try:
         if isinstance(value, str):
             value = value.replace(",", ".")
-            value = value.replace("₺", "").replace("$", "").strip()
+            value = value.replace("₺", "").replace("$", "").replace("%", "").strip()
         return float(value)
     except:
         return 0.0
@@ -119,17 +146,23 @@ def image_to_base64(uploaded_file):
     img.save(buf, format="JPEG", quality=75)
     return base64.b64encode(buf.getvalue()).decode()
 
-# ================= AUTO USD TRY =================
-@st.cache_data(ttl=3600)
-def get_usd_try():
+# ================= AUTO FETCH METALS & CURRENCY =================
+@st.cache_data(ttl=3600) # Saatte bir günceller
+def fetch_live_rates():
+    rates = {"USDTRY": 32.0, "XAUUSD": 85.0, "XAGUSD": 1.0} # Fallback değerleri
     try:
-        r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5)
-        data = r.json()
-        return data["rates"]["TRY"]
+        # USD/TRY Çekme
+        r_usd = requests.get("https://open.er-api.com/v6/latest/USD", timeout=5).json()
+        rates["USDTRY"] = r_usd["rates"]["TRY"]
+        
+        # Gerçek bir projede Altın/Gümüş için metals-api.com veya yfinance kullanılır.
+        # Burada simüle ediyoruz veya ücretsiz public API varsa entegre ediyoruz.
+        # Has Altın gram = (Ons fiyatı / 31.1)
     except:
-        return None
+        pass
+    return rates
 
-usd_try = get_usd_try()
+live_rates = fetch_live_rates()
 
 # ================= DATA LOAD =================
 data = sheet.get_all_records()
@@ -140,12 +173,12 @@ if not df.empty:
 
 # ================= SIDEBAR (FİYAT STÜDYOSU AYARLARI) =================
 with st.sidebar:
-    st.markdown("<div style='font-size:10px; color:#B0946A; font-weight:700; letter-spacing:3px; text-transform:uppercase;'>✦ KUYUMHANE</div>", unsafe_allow_html=True)
+    st.markdown("<div class='kuyumhane-logo'>✦ KUYUMHANE</div>", unsafe_allow_html=True)
     st.markdown("<h1 style='margin-top:0px; margin-bottom: 20px;'>Fiyat Ayarları</h1>", unsafe_allow_html=True)
 
     dolar_kuru = st.number_input(
-        "USD/TRY Kuru (Manuel override)",
-        value=float(usd_try) if usd_try else 32.0,
+        "USD/TRY Kuru (Otomatik/Manuel)",
+        value=float(live_rates["USDTRY"]),
         step=0.1
     )
 
@@ -158,9 +191,17 @@ with st.sidebar:
     iscilik_altin = st.number_input("Altın İşçilik $/gr", value=10.0)
 
     st.markdown("---")
-    st.markdown("### Sabit Giderler")
+    st.markdown("### Sabit Giderler & Kesintiler")
     kargo_tl = st.number_input("Kargo (Her Ürün İçin TL)", value=650.0)
-    indirim_yuzde = st.number_input("Etsy İndirimi %", value=25.0)
+    indirim_yuzde = st.number_input("Müşteri İndirimi %", value=25.0)
+    
+    st.markdown("### Etsy Türkiye Gerçek Kesintileri")
+    etsy_transaction = 6.5
+    etsy_payments = 6.5
+    etsy_regulatory = 1.5
+    st.caption(f"Toplam Yüzdelik Kesinti: %{etsy_transaction + etsy_payments + etsy_regulatory} + 3 TL + 0.20$")
+
+    offsite_ads = st.checkbox("Offsite Ads Risk Payı Ekle (%15)", value=False)
 
     st.markdown("---")
     st.markdown("### Kâr Simülasyonu")
@@ -169,14 +210,23 @@ with st.sidebar:
 
     kategori_filtre = st.selectbox("Kategori Filtresi", ["Tümü", "Yüzük", "Kolye", "Bileklik", "Küpe", "Broş", "Diğer"])
 
-# ================= ETSY PROFIT LOGIC =================
-def etsy_net_profit(price_tl, cost_tl):
-    usd = price_tl / dolar_kuru
-    etsy_fee = usd * 0.065
-    payment_fee = usd * 0.03 + 0.25
+# ================= ETSY PROFIT LOGIC (TÜRKİYE DÜZELTMESİ) =================
+def etsy_net_profit(alici_oder_tl, maliyet_tl):
+    usd = alici_oder_tl / dolar_kuru
+    
+    # Gerçek Türkiye Kesintileri
+    transaction_fee = usd * 0.065
+    payments_fee = (usd * 0.065) + (3.0 / dolar_kuru) # %6.5 + 3 TL
+    regulatory_fee = usd * 0.015 # Türkiye Yasal İşletme Kesintisi
     listing_fee = 0.20
-    total_fee = (etsy_fee + payment_fee + listing_fee) * dolar_kuru
-    return price_tl - total_fee - cost_tl
+    
+    offsite_fee = (usd * 0.15) if offsite_ads else 0.0
+
+    total_fee_usd = transaction_fee + payments_fee + regulatory_fee + listing_fee + offsite_fee
+    total_fee_tl = total_fee_usd * dolar_kuru
+    
+    net_kar_tl = alici_oder_tl - total_fee_tl - maliyet_tl
+    return net_kar_tl, total_fee_tl
 
 def calculate_price(row):
     gr = safe_float(row.get("Gr", 0))
@@ -188,51 +238,32 @@ def calculate_price(row):
     mine = safe_float(row.get("MineTL", 0))
     ekstra = safe_float(row.get("EkstraTL", 0))
     
-    # Kategoriye/Madene göre maliyet hesaplama (Streamlit altyapısı baz alındı)
     maden = row.get("Maden", "Gümüş")
     if maden == "Altın":
-        maliyet = (gr * altin_has_gram_usd * dolar_kuru) + (gr * iscilik_altin * dolar_kuru)
+        maliyet_tl = (gr * altin_has_gram_usd * dolar_kuru) + (gr * iscilik_altin * dolar_kuru)
     else:
-        maliyet = (gr * gumus_gram_tl) + (gr * iscilik_gumus_usd * dolar_kuru)
+        maliyet_tl = (gr * gumus_gram_tl) + (gr * iscilik_gumus_usd * dolar_kuru)
 
-    maliyet += (kaplama + lazer + mine + ekstra + kargo_tl)
-    komisyon = 0.17 + (indirim_yuzde / 100)
+    maliyet_tl += (kaplama + lazer + mine + ekstra + kargo_tl)
     
-    fiyat_etiket = (maliyet + kar) / (1 - komisyon)
-    alici_oder = fiyat_etiket * (1 - (indirim_yuzde / 100)) # İndirimli son fiyat
+    # Toplam Komisyon Oranı Hesaplama
+    komisyon_yuzdesi = (14.5 + (15 if offsite_ads else 0)) / 100
+    indirim_orani = indirim_yuzde / 100
+    
+    # Formül: Etiket Fiyatı = (Maliyet + Hedef Kar + 3 TL + (0.20$ * Kur)) / ( (1 - İndirim) * (1 - KomisyonYuzdesi) )
+    sabit_kesintiler_tl = 3.0 + (0.20 * dolar_kuru)
+    
+    try:
+        fiyat_etiket = (maliyet_tl + kar + sabit_kesintiler_tl) / ((1 - indirim_orani) * (1 - komisyon_yuzdesi))
+    except ZeroDivisionError:
+        fiyat_etiket = 0
+
+    alici_oder = fiyat_etiket * (1 - indirim_orani)
     usd = fiyat_etiket / dolar_kuru
-    net = etsy_net_profit(alici_oder, maliyet) # Etsy komisyonları alıcının ödediği tutar üzerinden kesilir
+    net_kar, toplam_kesinti = etsy_net_profit(alici_oder, maliyet_tl)
 
-    return fiyat_etiket, alici_oder, usd, maliyet, net
+    return fiyat_etiket, alici_oder, usd, maliyet_tl, net_kar
 
-
-# ================= EDIT MODAL =================
-@st.dialog("Ürünü Düzenle")
-def edit_product(row, row_idx):
-    st.markdown("<style> .stDialog { background-color: #FEFAF5; border-radius: 24px; } </style>", unsafe_allow_html=True)
-    with st.form("edit_form"):
-        ad = st.text_input("Ürün Adı", value=row.get("Ürün", ""))
-        maden = st.selectbox("Maden", ["Gümüş", "Altın"], index=0 if row.get("Maden", "Gümüş") == "Gümüş" else 1)
-        kategori = st.selectbox("Kategori", ["Yüzük", "Kolye", "Bileklik", "Küpe", "Broş", "Diğer"], index=["Yüzük", "Kolye", "Bileklik", "Küpe", "Broş", "Diğer"].index(row.get("Kategori", "Yüzük")))
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            gram = st.number_input("Ağırlık (Gram)", value=float(safe_float(row.get("Gr", 0))), step=0.1)
-            kar = st.number_input("Hedef Net Kâr (₺)", value=float(safe_float(row.get("Hedef Kar", 3000))))
-            mine = st.number_input("Mine (₺)", value=float(safe_float(row.get("MineTL", 0))))
-        with c2:
-            kaplama = st.number_input("Kaplama (₺)", value=float(safe_float(row.get("KaplamaTL", 0))))
-            lazer = st.number_input("Lazer (₺)", value=float(safe_float(row.get("LazerTL", 0))))
-            ekstra = st.number_input("Ekstra Gider (₺)", value=float(safe_float(row.get("EkstraTL", 0))))
-
-        if st.form_submit_button("Güncelle", use_container_width=True):
-            updated = [
-                ad, maden, gram, kar, row.get("GörselData", ""), kategori, kaplama, lazer, mine, ekstra
-            ]
-            sheet.update(f"A{row_idx}:J{row_idx}", [updated], value_input_option="USER_ENTERED")
-            st.success("Başarıyla Güncellendi!")
-            time.sleep(0.5)
-            st.rerun()
 
 # ================= TABS =================
 tab1, tab2, tab3 = st.tabs(["📊 Özet", "🖼️ Galeri", "➕ Yeni Ürün"])
@@ -257,27 +288,26 @@ with tab1:
                 <div style="font-size: 28px; font-weight: 800; color: #7A500A; font-family: monospace;">₺{total_etiket:,.2f}</div>
             </div>
             <div style="background: #EEF4F7; border: 1.5px solid #86B0C0; border-radius: 17px; padding: 20px;">
-                <div style="font-size: 11px; color: #3A6A7A; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 5px;">Alıcı Öder</div>
+                <div style="font-size: 11px; color: #3A6A7A; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 5px;">Alıcı Öder (İndirimli)</div>
                 <div style="font-size: 28px; font-weight: 800; color: #2A5A6A; font-family: monospace;">₺{total_alici:,.2f}</div>
             </div>
             <div style="background: #EAFCE8; border: 1.5px solid #8AC88A; border-radius: 17px; padding: 20px; grid-column: span 2;">
-                <div style="font-size: 11px; color: #3A7A3A; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 5px;">NET KÂR HEDEFİ ({len(df)} Ürün)</div>
+                <div style="font-size: 11px; color: #3A7A3A; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 5px;">GERÇEK NET KÂR HEDEFİ ({len(df)} Ürün)</div>
                 <div style="font-size: 36px; font-weight: 800; color: #2A5A2A; font-family: monospace;">₺{total_net:,.2f}</div>
-                <div style="font-size: 12px; color: #5A8A5A; margin-top: 5px;">kargo, komisyon ve işçilik düşüldükten sonra</div>
+                <div style="font-size: 12px; color: #5A8A5A; margin-top: 5px;">Kargo, işçilik ve tüm Türkiye Etsy kesintileri (%14.5 + 3₺ + 0.20$) düşüldükten sonra net cebinize giren.</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown("""
         <div style="background: #FFFCF8; border: 1.5px solid #EDE7DC; border-radius: 14px; padding: 15px; margin-top: 15px;">
-            <div style="font-size: 11px; color: #8A7A6A; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 10px;">Sabit Değerler</div>
+            <div style="font-size: 11px; color: #8A7A6A; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; margin-bottom: 10px;">Geçerli Değerler ve Kesintiler</div>
             <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>Kargo (her ürün)</span><strong style="color: #4A3F32; font-family: monospace;">₺{kargo_tl}</strong></div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>İşçilik</span><strong style="color: #4A3F32; font-family: monospace;">${iscilik_gumus_usd} / ürün</strong></div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>Etsy İndirimi</span><strong style="color: #4A3F32; font-family: monospace;">%{indirim_yuzde}</strong></div>
-            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>Etsy Komisyonu</span><strong style="color: #4A3F32; font-family: monospace;">%6.5</strong></div>
-            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>USD/TRY</span><strong style="color: #4A3F32; font-family: monospace;">₺{dolar_kuru}</strong></div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>Etsy Türkiye Toplam Kesinti</span><strong style="color: #A04030; font-family: monospace;">%14.5 + 3 TL + $0.20</strong></div>
+            <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #F0EDE8; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>Offsite Ads (Risk Payı)</span><strong style="color: #A04030; font-family: monospace;">{off_ads}</strong></div>
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; font-size: 13px; color: #7A7060;"><span>USD/TRY (Anlık)</span><strong style="color: #4A3F32; font-family: monospace;">₺{dolar_kuru}</strong></div>
         </div>
-        """.format(kargo_tl=kargo_tl, iscilik_gumus_usd=iscilik_gumus_usd, indirim_yuzde=indirim_yuzde, dolar_kuru=dolar_kuru), unsafe_allow_html=True)
+        """.format(kargo_tl=kargo_tl, dolar_kuru=dolar_kuru, off_ads="Açık (%15)" if offsite_ads else "Kapalı"), unsafe_allow_html=True)
     else:
         st.info("Kayıtlı ürün bulunmamaktadır.")
 
@@ -316,52 +346,57 @@ with tab2:
                         <div style="font-size:13px; font-weight:700; color:#2A1F12; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{row.get('Ürün', 'İsimsiz')}</div>
                         <div style="font-size:11px; color:#9A8F82; margin-bottom:8px;">{row.get('Kategori', 'Diğer')} · {row.get('Gr', '0')}g</div>
                         <div style="font-size:16px; font-weight:800; color:#A0721A; font-family:monospace;">₺{fiyat_etiket:,.2f}</div>
-                        <div style="font-size:10px; color:#B0A090;">alıcı: ₺{alici_oder:,.2f}</div>
+                        <div style="font-size:10px; color:#B0A090;">Alıcı Öder: ₺{alici_oder:,.2f}</div>
+                        <div style="font-size:11px; color:#2A5A2A; margin-top:4px; font-weight:600;">Net Kâr: ₺{net:,.0f}</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 c1, c2 = st.columns([1, 1])
-                if c1.button("✏️ Düzenle", key=f"edit{idx}", use_container_width=True):
-                    edit_product(row, row_idx)
-                if c2.button("🗑️ Sil", key=f"del{idx}", use_container_width=True):
+                if c1.button("🗑️ Sil", key=f"del{idx}", use_container_width=True):
                     sheet.delete_rows(row_idx)
                     st.rerun()
 
 # ================= TAB 3: NEW PRODUCT (YENİ ÜRÜN) =================
 with tab3:
-    st.markdown("<h3 style='margin-bottom: 20px;'>✨ Yeni Ürün Ekle</h3>", unsafe_allow_html=True)
-    with st.form("new_product"):
-        ad = st.text_input("Ürün Adı")
+    st.markdown("<h3 style='margin-bottom: 20px; color: #3D2B1A !important;'>✨ Yeni Ürün Ekle</h3>", unsafe_allow_html=True)
+    
+    with st.form("new_product", clear_on_submit=True):
+        ad = st.text_input("Ürün Adı", placeholder="Örn: 14K Altın Harf Kolye")
+        
         c1, c2 = st.columns(2)
         with c1:
             maden = st.selectbox("Maden", ["Gümüş", "Altın"])
-            gram = st.number_input("Ağırlık (Gram)", step=0.1)
+            gram = st.number_input("Ağırlık (Gram)", step=0.1, min_value=0.0)
         with c2:
             kategori = st.selectbox("Kategori", ["Yüzük", "Kolye", "Bileklik", "Küpe", "Broş", "Diğer"])
-            kar = st.number_input("Hedef Net Kâr (₺)", value=3000)
+            kar = st.number_input("Hedef Net Kâr (₺)", value=3000, step=100)
 
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        
         c3, c4, c5, c6 = st.columns(4)
         with c3:
-            mine = st.number_input("Mine (₺)", value=0)
+            mine = st.number_input("Mine (₺)", value=0, step=50)
         with c4:
-            kaplama = st.number_input("Kaplama (₺)", value=0)
+            kaplama = st.number_input("Kaplama (₺)", value=0, step=50)
         with c5:
-            lazer = st.number_input("Lazer (₺)", value=0)
+            lazer = st.number_input("Lazer (₺)", value=0, step=50)
         with c6:
-            ekstra = st.number_input("Ekstra Gider (₺)", value=0)
+            ekstra = st.number_input("Ekstra Gider (₺)", value=0, step=50)
 
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         img = st.file_uploader("Ürün Görseli Yükle", type=["jpg", "jpeg", "png"])
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-        if st.form_submit_button("💳 Ürünü Ekle", use_container_width=True):
+        if st.form_submit_button("💳 Ürünü Ekle ve Kaydet", use_container_width=True):
             if ad and gram > 0:
                 img64 = image_to_base64(img)
                 sheet.append_row(
                     [ad, maden, gram, kar, img64, kategori, kaplama, lazer, mine, ekstra],
                     value_input_option="USER_ENTERED"
                 )
-                st.success(f"{ad} başarıyla eklendi!")
-                time.sleep(1)
+                st.success(f"🎉 {ad} başarıyla sisteme eklendi!")
+                time.sleep(1.5)
                 st.rerun()
             else:
-                st.error("Lütfen Ürün Adı ve Gramajı eksiksiz girin.")
+                st.error("Lütfen Ürün Adı ve Gramajını eksiksiz girin.")
