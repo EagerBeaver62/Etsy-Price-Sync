@@ -153,7 +153,7 @@ def image_to_base64(uploaded_file):
     if uploaded_file is None:
         return ""
     img = Image.open(uploaded_file).convert("RGB")
-    img.thumbnail((500, 500)) # Görsel kalitesini biraz artırdım
+    img.thumbnail((500, 500)) 
     buf = BytesIO()
     img.save(buf, format="JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode()
@@ -190,11 +190,11 @@ with st.sidebar:
     )
 
     st.markdown("### Gümüş Değerleri")
-    gumus_gram_tl = st.number_input("Has Gümüş TL/gr", value=35.0, step=1.0) # Gerçekçi default
+    gumus_gram_tl = st.number_input("Has Gümüş TL/gr", value=35.0, step=1.0) 
     iscilik_gumus_usd = st.number_input("Gümüş İşçilik $/gr", value=1.5, step=0.1)
 
     st.markdown("### Altın Değerleri")
-    altin_has_gram_usd = st.number_input("Has Altın $/gr", value=75.0, step=1.0) # Gerçekçi default
+    altin_has_gram_usd = st.number_input("Has Altın $/gr", value=75.0, step=1.0) 
     iscilik_altin = st.number_input("Altın İşçilik $/gr", value=10.0, step=1.0)
 
     st.markdown("---")
@@ -285,7 +285,6 @@ def edit_product(row, row_idx):
             lazer = st.number_input("Lazer/Mine/Ekstra Toplamı (₺)", value=float(safe_float(row.get("LazerTL", 0))) + float(safe_float(row.get("MineTL", 0))) + float(safe_float(row.get("EkstraTL", 0))))
 
         if st.form_submit_button("💳 Değişiklikleri Kaydet", use_container_width=True):
-            # Mine ve ekstra için lazer inputunu bölüyoruz (basitleştirilmiş)
             updated = [
                 ad, maden, gram, kar, row.get("GörselData", ""), kategori, kaplama, lazer, 0, 0
             ]
@@ -332,7 +331,6 @@ with tab1:
 
 # ================= TAB 2: PRODUCTS (GALERİ) =================
 with tab2:
-    # Arama ve Kategori Filtresi (Yan yana ve daha şık)
     st.markdown("<div class='search-filter-container'>", unsafe_allow_html=True)
     col_search, col_filter = st.columns([3, 1])
     with col_search:
@@ -359,30 +357,10 @@ with tab2:
             maden_bg = "#EEF4F7" if row.get('Maden') != 'Altın' else "#FEF7E6"
             maden_label = str(row.get('Maden', 'Gümüş')).upper()
 
+            # HTML string birleşik hale getirildi (boş satır yok)
             with cols[idx % 4]:
-                st.markdown(f"""
-                <div style="background:#FFFCF8; border:1.5px solid #EDE7DC; border-radius:18px; overflow:hidden; box-shadow:0 4px 12px rgba(90,60,20,0.05); margin-bottom: 15px;">
-                    <div style="width:100%; padding-bottom:75%; position:relative; background:{maden_bg};">
-                        <img src="data:image/jpeg;base64,{row.get('GörselData', '')}" onerror="this.style.display='none'" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" />
-                        <div style="position:absolute; top:10px; left:10px;">
-                            <span style="font-size:10px; font-weight:700; letter-spacing:1.5px; color:{maden_renk}; background:rgba(255,255,255,0.9); padding:5px 10px; border-radius:20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">{maden_label}</span>
-                        </div>
-                    </div>
-                    <div style="padding:15px;">
-                        <div style="font-size:16px; font-weight:800; color:#2A1F12; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: 'Playfair Display', serif;">{row.get('Ürün', 'İsimsiz')}</div>
-                        <div style="font-size:13px; color:#9A8F82; margin-bottom:12px; font-weight: 500;">{row.get('Kategori', 'Diğer')} · {row.get('Gr', '0')}g</div>
-                        
-                        <div style="font-size:22px; font-weight:800; color:#A0721A; font-family:monospace; line-height: 1;">₺{fiyat_etiket:,.2f}</div>
-                        <div style="font-size:13px; color:#B0A090; margin-top: 4px; font-weight: 600;">Alıcı Öder: ₺{alici_oder:,.2f}</div>
-                        
-                        <div style="background: rgba(42, 90, 42, 0.08); border-radius: 8px; padding: 6px 10px; margin-top: 12px; border: 1px solid rgba(42, 90, 42, 0.15);">
-                            <div style="font-size:13px; color:#2A5A2A; font-weight:700; text-align: center;">Net Kâr: ₺{net:,.0f}</div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div style="background:#FFFCF8; border:1.5px solid #EDE7DC; border-radius:18px; overflow:hidden; box-shadow:0 4px 12px rgba(90,60,20,0.05); margin-bottom: 15px;"><div style="width:100%; padding-bottom:75%; position:relative; background:{maden_bg};"><img src="data:image/jpeg;base64,{row.get('GörselData', '')}" onerror="this.style.display='none'" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" /><div style="position:absolute; top:10px; left:10px;"><span style="font-size:10px; font-weight:700; letter-spacing:1.5px; color:{maden_renk}; background:rgba(255,255,255,0.9); padding:5px 10px; border-radius:20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">{maden_label}</span></div></div><div style="padding:15px;"><div style="font-size:16px; font-weight:800; color:#2A1F12; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: 'Playfair Display', serif;">{row.get('Ürün', 'İsimsiz')}</div><div style="font-size:13px; color:#9A8F82; margin-bottom:12px; font-weight: 500;">{row.get('Kategori', 'Diğer')} · {row.get('Gr', '0')}g</div><div style="font-size:22px; font-weight:800; color:#A0721A; font-family:monospace; line-height: 1;">₺{fiyat_etiket:,.2f}</div><div style="font-size:13px; color:#B0A090; margin-top: 4px; font-weight: 600;">Alıcı Öder: ₺{alici_oder:,.2f}</div><div style="background: rgba(42, 90, 42, 0.08); border-radius: 8px; padding: 6px 10px; margin-top: 12px; border: 1px solid rgba(42, 90, 42, 0.15);"><div style="font-size:13px; color:#2A5A2A; font-weight:700; text-align: center;">Net Kâr: ₺{net:,.0f}</div></div></div></div>""", unsafe_allow_html=True)
                 
-                # Butonlar yan yana
                 c1, c2 = st.columns([1, 1])
                 if c1.button("✏️ Düzenle", key=f"edit_{idx}", use_container_width=True):
                     edit_product(row, row_idx)
