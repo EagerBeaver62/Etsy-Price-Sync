@@ -152,11 +152,24 @@ def safe_float(value):
 def image_to_base64(uploaded_file):
     if uploaded_file is None:
         return ""
-    img = Image.open(uploaded_file).convert("RGB")
-    img.thumbnail((500, 500)) 
-    buf = BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    return base64.b64encode(buf.getvalue()).decode()
+    try:
+        img = Image.open(uploaded_file).convert("RGB")
+        # Google Sheets'in 50.000 karakterlik hücre sınırını aşmamak için optimize ediyoruz
+        img.thumbnail((250, 250)) 
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=65)
+        b64_str = base64.b64encode(buf.getvalue()).decode()
+        
+        # Eğer hala sınırın üzerindeyse (nadiren olur), biraz daha küçült
+        if len(b64_str) > 49000:
+            img.thumbnail((150, 150))
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=50)
+            b64_str = base64.b64encode(buf.getvalue()).decode()
+            
+        return b64_str
+    except Exception as e:
+        return ""
 
 # ================= AUTO FETCH CURRENCY =================
 @st.cache_data(ttl=3600)
@@ -172,11 +185,14 @@ def fetch_live_rates():
 live_rates = fetch_live_rates()
 
 # ================= DATA LOAD =================
-data = sheet.get_all_records()
-df = pd.DataFrame(data)
-
-if not df.empty:
-    df = df[df["Ürün"].astype(str).str.strip() != ""]
+try:
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
+    if not df.empty:
+        df = df[df["Ürün"].astype(str).str.strip() != ""]
+except Exception as e:
+    st.error("Google Sheets bağlantısında bir sorun oluştu. Lütfen sayfayı yenileyin.")
+    df = pd.DataFrame()
 
 # ================= SIDEBAR (FİYAT STÜDYOSU AYARLARI) =================
 with st.sidebar:
@@ -285,13 +301,16 @@ def edit_product(row, row_idx):
             lazer = st.number_input("Lazer/Mine/Ekstra Toplamı (₺)", value=float(safe_float(row.get("LazerTL", 0))) + float(safe_float(row.get("MineTL", 0))) + float(safe_float(row.get("EkstraTL", 0))))
 
         if st.form_submit_button("💳 Değişiklikleri Kaydet", use_container_width=True):
-            updated = [
-                ad, maden, gram, kar, row.get("GörselData", ""), kategori, kaplama, lazer, 0, 0
-            ]
-            sheet.update(f"A{row_idx}:J{row_idx}", [updated], value_input_option="USER_ENTERED")
-            st.success("Başarıyla Güncellendi!")
-            time.sleep(0.5)
-            st.rerun()
+            try:
+                updated = [
+                    ad, maden, gram, kar, row.get("GörselData", ""), kategori, kaplama, lazer, 0, 0
+                ]
+                sheet.update(f"A{row_idx}:J{row_idx}", [updated], value_input_option="USER_ENTERED")
+                st.success("Başarıyla Güncellendi!")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.error("Güncellenirken bir hata oluştu. Google Sheets sınırı aşılmış olabilir.")
 
 # ================= TABS =================
 tab1, tab2, tab3 = st.tabs(["📊 Özet", "🖼️ Galeri", "➕ Yeni Ürün Ekle"])
@@ -357,7 +376,6 @@ with tab2:
             maden_bg = "#EEF4F7" if row.get('Maden') != 'Altın' else "#FEF7E6"
             maden_label = str(row.get('Maden', 'Gümüş')).upper()
 
-            # HTML string birleşik hale getirildi (boş satır yok)
             with cols[idx % 4]:
                 st.markdown(f"""<div style="background:#FFFCF8; border:1.5px solid #EDE7DC; border-radius:18px; overflow:hidden; box-shadow:0 4px 12px rgba(90,60,20,0.05); margin-bottom: 15px;"><div style="width:100%; padding-bottom:75%; position:relative; background:{maden_bg};"><img src="data:image/jpeg;base64,{row.get('GörselData', '')}" onerror="this.style.display='none'" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;" /><div style="position:absolute; top:10px; left:10px;"><span style="font-size:10px; font-weight:700; letter-spacing:1.5px; color:{maden_renk}; background:rgba(255,255,255,0.9); padding:5px 10px; border-radius:20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">{maden_label}</span></div></div><div style="padding:15px;"><div style="font-size:16px; font-weight:800; color:#2A1F12; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: 'Playfair Display', serif;">{row.get('Ürün', 'İsimsiz')}</div><div style="font-size:13px; color:#9A8F82; margin-bottom:12px; font-weight: 500;">{row.get('Kategori', 'Diğer')} · {row.get('Gr', '0')}g</div><div style="font-size:22px; font-weight:800; color:#A0721A; font-family:monospace; line-height: 1;">₺{fiyat_etiket:,.2f}</div><div style="font-size:13px; color:#B0A090; margin-top: 4px; font-weight: 600;">Alıcı Öder: ₺{alici_oder:,.2f}</div><div style="background: rgba(42, 90, 42, 0.08); border-radius: 8px; padding: 6px 10px; margin-top: 12px; border: 1px solid rgba(42, 90, 42, 0.15);"><div style="font-size:13px; color:#2A5A2A; font-weight:700; text-align: center;">Net Kâr: ₺{net:,.0f}</div></div></div></div>""", unsafe_allow_html=True)
                 
@@ -406,12 +424,15 @@ with tab3:
         if st.form_submit_button("💳 Sisteme Kaydet", use_container_width=True):
             if ad and gram > 0:
                 img64 = image_to_base64(img)
-                sheet.append_row(
-                    [ad, maden, gram, kar, img64, kategori, kaplama, lazer, mine, ekstra],
-                    value_input_option="USER_ENTERED"
-                )
-                st.success(f"🎉 Harika! {ad} başarıyla vitrine eklendi.")
-                time.sleep(1.5)
-                st.rerun()
+                try:
+                    sheet.append_row(
+                        [ad, maden, gram, kar, img64, kategori, kaplama, lazer, mine, ekstra],
+                        value_input_option="USER_ENTERED"
+                    )
+                    st.success(f"🎉 Harika! {ad} başarıyla vitrine eklendi.")
+                    time.sleep(1.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error("Görsel boyutu Google Sheets sınırını aşıyor. Lütfen daha düşük çözünürlüklü bir fotoğraf seçin veya kodu kontrol edin.")
             else:
                 st.error("Lütfen Ürün Adı ve Gramajını eksiksiz girin.")
